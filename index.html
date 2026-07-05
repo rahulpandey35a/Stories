@@ -1285,6 +1285,29 @@ function drawCaptionPanel(hi, en, fadeT){
   sctx.restore();
 }
 
+/* ---- illustrated sprites (optional — falls back to emoji per-character if no art exists yet) ---- */
+var SPRITE_CACHE = {};
+function loadSprite(id){
+  if(SPRITE_CACHE[id] !== undefined) return Promise.resolve(SPRITE_CACHE[id]);
+  return new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){ SPRITE_CACHE[id] = img; resolve(img); };
+    img.onerror = function(){ SPRITE_CACHE[id] = null; resolve(null); };
+    img.src = 'sprites/'+id+'.png';
+  });
+}
+function spriteIdFor(kind, tk, item){
+  var theme = THEMES[tk];
+  var idx = (kind==='hero') ? theme.heroes.indexOf(item) : theme.helpers.indexOf(item);
+  return kind+'_'+tk+'_'+idx;
+}
+// draws an image centered at the current origin, scaled to a fixed display height, preserving aspect ratio
+function drawSpriteCentered(img, dispH){
+  var ratio = img.naturalWidth / img.naturalHeight;
+  var w = dispH*ratio;
+  sctx.drawImage(img, -w/2, -dispH/2, w, dispH);
+}
+
 function drawCharacters(theme, elapsed, phase, pick){
   var v = THEME_VISUAL[theme];
   var bob = Math.sin(elapsed*2)*16;
@@ -1320,9 +1343,13 @@ function drawCharacters(theme, elapsed, phase, pick){
     sctx.translate(heroX+heroLeanX, heroY);
     sctx.rotate(Math.sin(elapsed*1.3)*0.06);
     sctx.scale(heroScale, heroScale);
-    sctx.font = '110px sans-serif';
-    sctx.textAlign='center'; sctx.textBaseline='middle';
-    sctx.fillText(pick.hero.emoji, 0, 0);
+    if(pick.heroSprite){
+      drawSpriteCentered(pick.heroSprite, 260);
+    } else {
+      sctx.font = '110px sans-serif';
+      sctx.textAlign='center'; sctx.textBaseline='middle';
+      sctx.fillText(pick.hero.emoji, 0, 0);
+    }
     sctx.restore();
 
     if(phase==='open'){
@@ -1350,9 +1377,15 @@ function drawCharacters(theme, elapsed, phase, pick){
   if(phase==='help' || phase==='plan' || phase==='turn' || phase==='solved' || phase==='reflect' || phase==='moral'){
     var helperBob = Math.sin(elapsed*2.4+1.1)*14;
     var helperX = (phase==='plan') ? W*0.52 : W*0.66;
-    sctx.save(); sctx.textAlign='center'; sctx.textBaseline='middle';
-    sctx.font='90px sans-serif';
-    sctx.fillText(pick.helper.emoji, helperX, H*0.42+helperBob);
+    sctx.save();
+    sctx.translate(helperX, H*0.42+helperBob);
+    if(pick.helperSprite){
+      drawSpriteCentered(pick.helperSprite, 220);
+    } else {
+      sctx.textAlign='center'; sctx.textBaseline='middle';
+      sctx.font='90px sans-serif';
+      sctx.fillText(pick.helper.emoji, 0, 0);
+    }
     sctx.restore();
     if(phase==='plan'){
       sctx.save(); sctx.globalAlpha=0.9;
@@ -1390,8 +1423,12 @@ function drawTitleCard(pick, narrator, t){
   sctx.globalAlpha = clamp(1 - Math.abs(t-0.7)/0.7, 0, 1);
   sctx.fillStyle = THEME_VISUAL[pick.tk].accent;
   sctx.textAlign='center'; sctx.textBaseline='middle';
-  sctx.font='90px sans-serif';
-  sctx.fillText(pick.hero.emoji, W/2, H*0.38);
+  if(pick.heroSprite){
+    sctx.save(); sctx.translate(W/2, H*0.36); drawSpriteCentered(pick.heroSprite, 220); sctx.restore();
+  } else {
+    sctx.font='90px sans-serif';
+    sctx.fillText(pick.hero.emoji, W/2, H*0.38);
+  }
   sctx.font = '700 34px "Noto Sans Devanagari", sans-serif';
   sctx.fillText(pick.hero.hi+' की कहानी', W/2, H*0.55);
   sctx.font = '400 18px system-ui, sans-serif';
@@ -1443,6 +1480,9 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
   genBtn.disabled = true;
   statusEl.textContent = 'Preparing audio\u2026';
+
+  meta.heroSprite = await loadSprite(spriteIdFor('hero', meta.tk, meta.hero));
+  meta.helperSprite = await loadSprite(spriteIdFor('helper', meta.tk, meta.helper));
 
   var AC = window.AudioContext || window.webkitAudioContext;
   var actx = new AC();
