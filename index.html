@@ -483,7 +483,7 @@ function clipKey(id){ return activeNarrator+"|"+id; }
 
 /* ---------- recording state (in-memory only for this prototype — download the zip before closing the tab) ---------- */
 var clips = {}; // "narratorId|itemId" -> {blob, url}
-var mediaRecorder=null, recChunks=[], recordingKey=null, stream=null;
+var mediaRecorder=null, recChunks=[], recordingKey=null, activeStream=null;
 
 function narratorDoneCount(nid){
   var n=0;
@@ -564,12 +564,11 @@ function micSupportProblem(){
   return null;
 }
 
-async function ensureStream(){
-  if(stream) return stream;
+async function getFreshStream(){
   var problem = micSupportProblem();
   if(problem) throw new Error(problem);
   try{
-    stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    return await navigator.mediaDevices.getUserMedia({audio:true});
   } catch(e){
     if(e.name==='NotAllowedError' || e.name==='PermissionDeniedError'){
       throw new Error('Microphone permission was denied. Check your browser/site settings and allow microphone access for this page, then try again.');
@@ -579,20 +578,40 @@ async function ensureStream(){
     }
     throw new Error('Could not access the microphone: '+(e.message||e.name||e));
   }
-  return stream;
 }
 
+function releaseActiveStream(){
+  if(activeStream){
+    activeStream.getTracks().forEach(function(t){ t.stop(); });
+    activeStream = null;
+  }
+}
+
+// Request a brand-new mic connection for every clip and release it right after —
+// reusing one long-lived stream across many recordings is unreliable on phones
+// (the browser/OS can silently kill it after the first use, with no visible error).
 async function startRecording(id){
   try{
     if(recordingKey) await stopRecording();
-    await ensureStream();
+    activeStream = await getFreshStream();
     recChunks=[];
-    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder = new MediaRecorder(activeStream);
     mediaRecorder.ondataavailable = function(e){ if(e.data.size>0) recChunks.push(e.data); };
+    mediaRecorder.onerror = function(e){
+      releaseActiveStream();
+      recordingKey = null;
+      alert('Recording error: '+((e.error && e.error.message) || 'the recorder stopped unexpectedly. Please try again.'));
+      renderCategory(id);
+    };
     var key = clipKey(id);
     mediaRecorder.onstop = function(){
-      var blob = new Blob(recChunks, {type: mediaRecorder.mimeType||'audio/webm'});
-      clips[key] = {blob:blob, url:URL.createObjectURL(blob)};
+      releaseActiveStream();
+      if(recChunks.length===0){
+        alert('No audio was captured for that phrase — please try recording it again.');
+      } else {
+        var blob = new Blob(recChunks, {type: mediaRecorder.mimeType||'audio/webm'});
+        clips[key] = {blob:blob, url:URL.createObjectURL(blob)};
+      }
       updateProgress();
       renderCategory(id);
     };
@@ -600,6 +619,7 @@ async function startRecording(id){
     recordingKey = key;
     renderCategory(id);
   } catch(e){
+    releaseActiveStream();
     recordingKey = null;
     alert(e.message || String(e));
     renderCategory(id);
