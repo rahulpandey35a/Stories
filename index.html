@@ -66,12 +66,19 @@
   .mini-bar{height:6px; background:var(--line); border-radius:3px; overflow:hidden}
   .mini-fill{height:100%; background:var(--teal)}
   .active-tag{background:var(--teal); color:#fff; font-size:10px; padding:2px 6px; border-radius:6px; margin-left:6px}
+  .selectors{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:10px 0}
+  .selbox .lbl{font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); font-weight:700; margin-bottom:6px}
+  .chips{display:flex; gap:6px; flex-wrap:wrap}
+  .chip{border:1.5px solid var(--line); background:#fff; color:var(--ink); border-radius:999px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer}
+  .chip[aria-pressed="true"]{background:var(--teal); border-color:var(--teal); color:#fff}
+  .chip small{font-weight:400; opacity:.85}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🎙️ Voice Studio</h1>
-  <div class="sub">Record each phrase once per family member, then hear a real "short" story stitched together in whichever voice you choose — no internet, nothing leaves this browser tab.</div>
+  <h1>🎙️ Story Maker — Voice &amp; Film Studio</h1>
+  <div class="sub">Two parts: record family voices below, then jump to Part 2 to build and narrate a story exactly like the original app — in whichever voice you choose.</div>
+  <h1 style="font-size:19px">🎙️ Part 1 — Record Voices</h1>
 
   <div class="panel" id="micCheckPanel">
     <h2>🎤 Microphone check</h2>
@@ -98,29 +105,48 @@
     <div class="top-actions" style="margin-top:12px">
       <button class="btn-primary" id="assembleBtn">🔊 Assemble &amp; play a short story</button>
       <button class="btn-secondary" id="zipBtn">⬇️ Download all recordings (.zip, all family members)</button>
+      <button class="btn-secondary" id="retrimBtn">✂️ Trim silence on this person's existing recordings</button>
       <button class="btn-danger" id="clearBtn">Clear this person's recordings</button>
     </div>
-    <div class="note">Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
+    <div class="note" id="retrimStatus"></div>
+    <div class="note">Recordings auto-save to this device as you go (IndexedDB) — new ones are trimmed automatically; use the button above to trim recordings you made before this update. Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
     <div id="storyOut"></div>
   </div>
 
-  <div class="panel" id="videoPanel">
-    <h2>🎬 Make a video — voice: <span id="videoNarratorLabel"></span></h2>
-    <div class="note" id="videoPrereqNote" style="display:none"></div>
-    <div id="videoPickers"></div>
-    <div class="top-actions" style="margin-top:12px">
-      <button class="btn-secondary" id="rerollBtn">🎲 New random combo</button>
-      <button class="btn-primary" id="genVideoBtn">🎬 Generate video</button>
+  <div id="categories"></div>
+
+  <hr style="border:none; border-top:2px dashed var(--line); margin:28px 0">
+  <h1 style="font-size:19px">📖 Part 2 — Narrate a Story</h1>
+  <div class="sub">Pick the story exactly like the original app — then choose whose voice tells it, and how long.</div>
+
+  <div class="panel" id="narratePanel">
+    <div class="selectors">
+      <div class="selbox"><div class="lbl">World</div><div class="chips" id="n_themeChips"></div></div>
+      <div class="selbox"><div class="lbl">Who</div><div class="chips" id="n_heroChips"></div></div>
+      <div class="selbox"><div class="lbl">Where</div><div class="chips" id="n_placeChips"></div></div>
+      <div class="selbox"><div class="lbl">Problem</div><div class="chips" id="n_problemChips"></div></div>
+      <div class="selbox"><div class="lbl">Helper</div><div class="chips" id="n_helperChips"></div></div>
+      <div class="selbox"><div class="lbl">Ending</div><div class="chips" id="n_endingChips"></div></div>
+      <div class="selbox"><div class="lbl">Voice</div><div class="chips" id="n_narratorChips"></div></div>
+      <div class="selbox"><div class="lbl">Length</div><div class="chips" id="n_lenChips">
+        <button class="chip" data-len="short">Short</button>
+        <button class="chip" data-len="medium">Medium</button>
+        <button class="chip" data-len="long">Long</button>
+      </div></div>
     </div>
-    <div id="videoPickPreview" class="story-out" style="display:none"></div>
+    <div class="top-actions" style="margin-top:6px">
+      <button class="btn-secondary" id="n_surpriseBtn">🎲 Surprise me</button>
+      <button class="btn-primary" id="n_playBtn">▶ Play the story</button>
+      <button class="btn-primary" id="n_filmBtn">🎬 Watch animated film</button>
+    </div>
+    <div id="n_missing" class="missing"></div>
+    <div id="n_storyOut" class="story-out" style="display:none"></div>
     <div style="margin-top:14px">
       <canvas id="stage" width="540" height="960" style="width:100%; max-width:300px; display:block; margin:0 auto; border-radius:14px; background:#FFF9F0; border:1px solid var(--line)"></canvas>
     </div>
     <div class="progress-label" id="renderStatus" style="text-align:center; margin-top:8px"></div>
     <div id="videoResult" style="margin-top:12px"></div>
   </div>
-
-  <div id="categories"></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -421,11 +447,18 @@ var CONNECTORS = [
   {id:"verb_wa_m", hi:"था", en:"(was — masculine)"},
   {id:"verb_wa_f", hi:"थी", en:"(was — feminine)"},
   {id:"trait_lead", hi:"वह बहुत", en:"They were very"},
+  {id:"world_lead", hi:"हर दिन,", en:"Every day,"},
+  {id:"world_glue", hi:", और उसके मन में एक सपना था —", en:"and they had one dream —"},
   {id:"problem_lead", hi:"लेकिन एक दिन,", en:"But one day,"},
   {id:"react_lead", hi:"यह देखकर,", en:"Seeing this,"},
+  {id:"attempt_lead", hi:"फिर,", en:"So,"},
   {id:"help_lead", hi:"तभी,", en:"Just then,"},
+  {id:"help_lead_long", hi:"पर तभी,", en:"But just then,"},
   {id:"help_glue", hi:"ने आगे आकर", en:"stepped forward and"},
-  {id:"solved_lead", hi:"आख़िरकार,", en:"In the end,"}
+  {id:"plan_line", hi:"फिर दोनों ने मिलकर यही तरकीब आज़माई।", en:"Then the two of them put that very idea to work together."},
+  {id:"turn_lead", hi:"और देखते ही देखते,", en:"And before long,"},
+  {id:"solved_lead", hi:"आख़िरकार,", en:"In the end,"},
+  {id:"moral_lead", hi:"इस कहानी की सीख —", en:"The lesson —"}
 ];
 
 /* ---------- build a flat, categorized clip list from the real data ---------- */
@@ -447,14 +480,30 @@ CATS.push({key:"places", title:"Places", items: PLACES.map(function(p,i){ return
 CATS.push({key:"traits", title:"Hero traits", items: TRAIT.map(function(t,i){ return {id:"trait_"+i, hi:t.hi, en:t.en}; })});
 CATS.push({key:"endings", title:"Endings", items: ENDINGS.map(function(e,i){ return {id:"ending_"+i, hi:e.hi, en:e.en}; })});
 
+CATS.push({key:"daily", title:"Daily life (Medium/Long stories — recorded once per gender)",
+  items: DAILY.reduce(function(acc,d,i){
+    acc.push({id:"daily_"+i+"_m", hi:d.m, en:d.en, group:'daily_'+i});
+    acc.push({id:"daily_"+i+"_f", hi:d.f, en:d.en, group:'daily_'+i});
+    return acc;
+  }, [])});
+CATS.push({key:"goal", title:"Hero's dream (Medium/Long stories)", items: GOAL.map(function(g,i){ return {id:"goal_"+i, hi:g.hi, en:g.en}; })});
+CATS.push({key:"lowpoint", title:"Darkest moment (Long stories only)", items: LOWPOINT.map(function(l,i){ return {id:"low_"+i, hi:l.hi, en:l.en}; })});
+CATS.push({key:"reflection", title:"Looking back (Long stories only)", items: REFLECTION.map(function(r,i){ return {id:"reflect_"+i, hi:r.hi, en:r.en}; })});
+
 CATS.push({
-  key:"problems", title:"Problem beats (statement · reaction · help · resolution — 4 per problem)",
+  key:"problems", title:"Problem beats (8 per problem — statement/reaction/attempt/snag/help/turn/resolution/moral)",
   items: PROBLEMS.reduce(function(acc, p){
     var ps = PROBLEM_STORY[p.en];
+    var pa = PROBLEM_ATTEMPT[p.en];
+    var pm = PROBLEM_MORAL[p.en] || {hi:"हर मुश्किल कुछ न कुछ सिखा जाती है", en:"every hardship teaches us something"};
     acc.push({id:"prob_stmt_"+p.en, hi:(ps?ps.hi:p.hi), en:(ps?ps.en:p.en), group:p.en});
     acc.push({id:"prob_react_"+p.en, hi:p.reactHi, en:p.reactEn, group:p.en});
+    acc.push({id:"prob_attempt_"+p.en, hi:(pa?pa.hi:p.attemptHi), en:(pa?pa.en:p.attemptEn), group:p.en});
+    acc.push({id:"prob_snag_"+p.en, hi:p.snagHi, en:p.snagEn, group:p.en});
     acc.push({id:"prob_help_"+p.en, hi:p.helpHi, en:p.helpEn, group:p.en});
+    acc.push({id:"prob_turn_"+p.en, hi:p.turnHi, en:p.turnEn, group:p.en});
     acc.push({id:"prob_solved_"+p.en, hi:p.solvedHi, en:p.solvedEn, group:p.en});
+    acc.push({id:"prob_moral_"+p.en, hi:pm.hi, en:pm.en, group:p.en});
     return acc;
   }, [])
 });
@@ -466,8 +515,69 @@ var ALL_ITEMS = {};
 CATS.forEach(function(c){ c.items.forEach(function(it){ ALL_ITEMS[it.id]=it; }); });
 var TOTAL = Object.keys(ALL_ITEMS).length;
 
+/* ---------- persistence: IndexedDB for audio blobs, localStorage for the narrator list ---------- */
+var DB_NAME = 'voiceStudioDB', DB_VERSION = 1, STORE = 'clips';
+var dbPromise = ('indexedDB' in window) ? new Promise(function(resolve, reject){
+  var req = indexedDB.open(DB_NAME, DB_VERSION);
+  req.onupgradeneeded = function(){ req.result.createObjectStore(STORE); };
+  req.onsuccess = function(){ resolve(req.result); };
+  req.onerror = function(){ reject(req.error); };
+}) : null;
+
+async function dbPut(key, blob){
+  if(!dbPromise) return;
+  try{
+    var db = await dbPromise;
+    await new Promise(function(res, rej){
+      var tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).put(blob, key);
+      tx.oncomplete = res; tx.onerror = function(){ rej(tx.error); };
+    });
+  } catch(e){ console.log('Save to device storage failed:', e); }
+}
+async function dbDelete(key){
+  if(!dbPromise) return;
+  try{
+    var db = await dbPromise;
+    await new Promise(function(res, rej){
+      var tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).delete(key);
+      tx.oncomplete = res; tx.onerror = function(){ rej(tx.error); };
+    });
+  } catch(e){ console.log('Delete from device storage failed:', e); }
+}
+async function dbLoadAll(){
+  if(!dbPromise) return {};
+  try{
+    var db = await dbPromise;
+    return await new Promise(function(resolve, reject){
+      var tx = db.transaction(STORE, 'readonly');
+      var store = tx.objectStore(STORE);
+      var keysReq = store.getAllKeys();
+      var valsReq = store.getAll();
+      tx.oncomplete = function(){
+        var out = {};
+        keysReq.result.forEach(function(k,i){ out[k] = valsReq.result[i]; });
+        resolve(out);
+      };
+      tx.onerror = function(){ reject(tx.error); };
+    });
+  } catch(e){ console.log('Load from device storage failed:', e); return {}; }
+}
+
+function saveNarratorList(){
+  try{ localStorage.setItem('voiceStudioNarrators', JSON.stringify(NARRATORS)); } catch(e){}
+}
+function loadNarratorList(){
+  try{
+    var raw = localStorage.getItem('voiceStudioNarrators');
+    if(raw){ var parsed = JSON.parse(raw); if(Array.isArray(parsed) && parsed.length) return parsed; }
+  } catch(e){}
+  return null;
+}
+
 /* ---------- narrators (family members) ---------- */
-var NARRATORS = [
+var NARRATORS = loadNarratorList() || [
   {id:"kid", label:"Kid"},
   {id:"father", label:"Father"},
   {id:"mother", label:"Mother"},
@@ -481,7 +591,7 @@ var activeNarrator = NARRATORS[0].id;
 function narratorLabel(id){ var n = NARRATORS.find(function(n){ return n.id===id; }); return n?n.label:id; }
 function clipKey(id){ return activeNarrator+"|"+id; }
 
-/* ---------- recording state (in-memory only for this prototype — download the zip before closing the tab) ---------- */
+/* ---------- recording state — persisted to IndexedDB as you go, so nothing is lost on reload ---------- */
 var clips = {}; // "narratorId|itemId" -> {blob, url}
 var mediaRecorder=null, recChunks=[], recordingKey=null, activeStream=null;
 
@@ -497,6 +607,7 @@ function updateProgress(){
   document.getElementById('plabel').textContent = done+' / '+TOTAL+' recorded';
   document.getElementById('activeNarratorLabel').textContent = narratorLabel(activeNarrator);
   renderNarratorTable();
+  if(typeof renderNarrateSelectors === 'function' && document.getElementById('n_narratorChips')) renderNarrateSelectors();
 }
 
 function renderNarratorTable(){
@@ -541,6 +652,7 @@ document.getElementById('addNarratorBtn').onclick = function(){
   if(NARRATORS.some(function(n){ return n.id===id; })){ alert('That name is already in the list.'); return; }
   NARRATORS.push({id:id, label:name});
   activeNarrator = id;
+  saveNarratorList();
   populateNarratorSelect();
   updateProgress();
   buildCategoriesUI();
@@ -550,9 +662,10 @@ document.getElementById('removeNarratorBtn').onclick = function(){
   if(NARRATORS.length<=1){ alert("Keep at least one person."); return; }
   var n = NARRATORS.find(function(n){ return n.id===activeNarrator; });
   if(!confirm('Remove "'+n.label+'" and delete all of their recordings?')) return;
-  Object.keys(clips).forEach(function(k){ if(k.indexOf(activeNarrator+"|")===0) delete clips[k]; });
+  Object.keys(clips).forEach(function(k){ if(k.indexOf(activeNarrator+"|")===0){ delete clips[k]; dbDelete(k); } });
   NARRATORS = NARRATORS.filter(function(x){ return x.id!==activeNarrator; });
   activeNarrator = NARRATORS[0].id;
+  saveNarratorList();
   populateNarratorSelect();
   updateProgress();
   buildCategoriesUI();
@@ -587,6 +700,59 @@ function releaseActiveStream(){
   }
 }
 
+/* ---------- trim leading/trailing silence and re-encode as WAV for a clean, gap-free feel ---------- */
+var _trimCtx = null;
+function trimCtx(){ if(!_trimCtx) _trimCtx = new (window.AudioContext||window.webkitAudioContext)(); return _trimCtx; }
+
+function encodeWavMono(samples, sampleRate){
+  var buffer = new ArrayBuffer(44 + samples.length*2);
+  var view = new DataView(buffer);
+  function writeStr(off,str){ for(var i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); }
+  writeStr(0,'RIFF'); view.setUint32(4, 36+samples.length*2, true); writeStr(8,'WAVE');
+  writeStr(12,'fmt '); view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate*2, true);
+  view.setUint16(32,2,true); view.setUint16(34,16,true);
+  writeStr(36,'data'); view.setUint32(40, samples.length*2, true);
+  var off=44;
+  for(var i=0;i<samples.length;i++,off+=2){
+    var s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s<0 ? s*0x8000 : s*0x7FFF, true);
+  }
+  return new Blob([view], {type:'audio/wav'});
+}
+
+// Trims silence from both ends (small threshold + a little padding so words don't feel clipped),
+// then re-encodes as WAV so the result is a plain, reliable format for both trimming and later playback/export.
+async function trimSilenceToWav(blob){
+  try{
+    var ctx = trimCtx();
+    var arr = await blob.arrayBuffer();
+    var buf = await ctx.decodeAudioData(arr.slice(0));
+    var data = buf.getChannelData(0);
+    var sr = buf.sampleRate;
+    var win = Math.max(1, Math.round(sr*0.01)); // 10ms windows
+    var threshold = 0.018;
+    var n = data.length;
+    function rms(start){
+      var end = Math.min(start+win, n), sum=0;
+      for(var i=start;i<end;i++) sum += data[i]*data[i];
+      return Math.sqrt(sum/(end-start));
+    }
+    var startIdx = 0, endIdx = n, foundStart=false, foundEnd=false;
+    for(var i=0;i<n;i+=win){ if(rms(i)>threshold){ startIdx=i; foundStart=true; break; } }
+    for(var j=Math.floor((n-win)/win)*win; j>=0; j-=win){ if(rms(j)>threshold){ endIdx=Math.min(n,j+win); foundEnd=true; break; } }
+    if(!foundStart || !foundEnd || endIdx<=startIdx){ startIdx=0; endIdx=n; } // don't destroy audio if detection is unsure
+    var pad = Math.round(sr*0.05); // 50ms breathing room on each side
+    startIdx = Math.max(0, startIdx-pad);
+    endIdx = Math.min(n, endIdx+pad);
+    var trimmed = data.subarray(startIdx, endIdx);
+    return encodeWavMono(trimmed, sr);
+  } catch(e){
+    console.log('Trim failed, keeping original recording:', e);
+    return blob; // fail safe — never lose a recording because trimming had trouble
+  }
+}
+
 // Request a brand-new mic connection for every clip and release it right after —
 // reusing one long-lived stream across many recordings is unreliable on phones
 // (the browser/OS can silently kill it after the first use, with no visible error).
@@ -604,14 +770,17 @@ async function startRecording(id){
       renderCategory(id);
     };
     var key = clipKey(id);
-    mediaRecorder.onstop = function(){
+    mediaRecorder.onstop = async function(){
       releaseActiveStream();
       if(recChunks.length===0){
         alert('No audio was captured for that phrase — please try recording it again.');
-      } else {
-        var blob = new Blob(recChunks, {type: mediaRecorder.mimeType||'audio/webm'});
-        clips[key] = {blob:blob, url:URL.createObjectURL(blob)};
+        updateProgress(); renderCategory(id);
+        return;
       }
+      var rawBlob = new Blob(recChunks, {type: mediaRecorder.mimeType||'audio/webm'});
+      var finalBlob = await trimSilenceToWav(rawBlob);
+      clips[key] = {blob:finalBlob, url:URL.createObjectURL(finalBlob)};
+      dbPut(key, finalBlob);
       updateProgress();
       renderCategory(id);
     };
@@ -660,7 +829,9 @@ function playClip(id){
 }
 
 function deleteClip(id){
-  delete clips[clipKey(id)];
+  var key = clipKey(id);
+  delete clips[key];
+  dbDelete(key);
   updateProgress();
   renderCategory(id);
 }
@@ -742,66 +913,127 @@ function buildCategoriesUI(){
 function rand(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 function connHi(id){ return CONNECTORS.find(function(c){ return c.id===id; }); }
 
-// Pure function: given a fully-specified selection, build the 6-beat line structure
-// used by both audio-only playback and video generation.
-function buildLines(tk, hero, place, problem, helper, ending, trait){
+// Pure function: given a fully-specified selection + length, build the beat structure
+// used by both audio-only playback and video generation. Mirrors the original app's
+// assemble() beat logic exactly: short=6 beats, medium adds world/attempt/turn/moral,
+// long further adds snag/darkest-moment/plan/reflect and swaps in the longer help-lead.
+function buildLines(tk, hero, place, problem, helper, ending, trait, length){
+  length = length || 'short';
   var g = hero.g;
   function J(ids, hiParts, enParts){ return {ids:ids, hi:hiParts.join(' '), en:enParts.join(' ')}; }
-  var lines = [
-    Object.assign({role:'open'}, J(
-      ['open_lead','place_'+PLACES.indexOf(place),'hero_'+tk+'_'+THEMES[tk].heroes.indexOf(hero),'verb_rah_'+g,'verb_wa_'+g],
-      [connHi('open_lead').hi, place.hi, hero.hi, connHi('verb_rah_'+g).hi, connHi('verb_wa_'+g).hi],
-      [connHi('open_lead').en, hero.en, 'lived', place.en]
-    )),
-    Object.assign({role:'trait'}, J(
-      ['trait_lead','trait_'+TRAIT.indexOf(trait),'verb_wa_'+g],
-      [connHi('trait_lead').hi, trait.hi, connHi('verb_wa_'+g).hi],
-      [connHi('trait_lead').en, trait.en]
-    )),
-    Object.assign({role:'problem'}, J(
-      ['problem_lead','prob_stmt_'+problem.en],
-      [connHi('problem_lead').hi, (PROBLEM_STORY[problem.en]?PROBLEM_STORY[problem.en].hi:problem.hi)],
-      [connHi('problem_lead').en, problem.en]
-    )),
-    Object.assign({role:'react'}, J(
-      ['react_lead','prob_react_'+problem.en],
-      [connHi('react_lead').hi, problem.reactHi],
-      [connHi('react_lead').en, problem.reactEn]
-    )),
-    Object.assign({role:'help'}, J(
-      ['help_lead','helper_'+tk+'_'+THEMES[tk].helpers.indexOf(helper),'help_glue','prob_help_'+problem.en],
-      [connHi('help_lead').hi, helper.hi, connHi('help_glue').hi, problem.helpHi],
-      [connHi('help_lead').en, helper.en, connHi('help_glue').en, problem.helpEn]
-    )),
-    Object.assign({role:'solved'}, J(
-      ['solved_lead','prob_solved_'+problem.en,'ending_'+ENDINGS.indexOf(ending)],
-      [connHi('solved_lead').hi, problem.solvedHi+',', ending.hi],
-      [connHi('solved_lead').en, problem.solvedEn+',', ending.en]
-    ))
-  ];
+  var lines = [];
+
+  lines.push(Object.assign({role:'open'}, J(
+    ['open_lead','place_'+PLACES.indexOf(place),'hero_'+tk+'_'+THEMES[tk].heroes.indexOf(hero),'verb_rah_'+g,'verb_wa_'+g],
+    [connHi('open_lead').hi, place.hi, hero.hi, connHi('verb_rah_'+g).hi, connHi('verb_wa_'+g).hi],
+    [connHi('open_lead').en, hero.en, 'lived', place.en]
+  )));
+  lines.push(Object.assign({role:'trait'}, J(
+    ['trait_lead','trait_'+TRAIT.indexOf(trait),'verb_wa_'+g],
+    [connHi('trait_lead').hi, trait.hi, connHi('verb_wa_'+g).hi],
+    [connHi('trait_lead').en, trait.en]
+  )));
+
+  if(length!=='short'){
+    var dIdx = Math.floor(Math.random()*DAILY.length), gIdx = Math.floor(Math.random()*GOAL.length);
+    var dailyItem = DAILY[dIdx], goalItem = GOAL[gIdx];
+    lines.push(Object.assign({role:'world'}, J(
+      ['world_lead','daily_'+dIdx+'_'+g,'world_glue','goal_'+gIdx],
+      [connHi('world_lead').hi, (g==='f'?dailyItem.f:dailyItem.m), connHi('world_glue').hi, goalItem.hi],
+      [connHi('world_lead').en, dailyItem.en, connHi('world_glue').en, goalItem.en]
+    )));
+  }
+
+  lines.push(Object.assign({role:'problem'}, J(
+    ['problem_lead','prob_stmt_'+problem.en],
+    [connHi('problem_lead').hi, (PROBLEM_STORY[problem.en]?PROBLEM_STORY[problem.en].hi:problem.hi)],
+    [connHi('problem_lead').en, problem.en]
+  )));
+  lines.push(Object.assign({role:'react'}, J(
+    ['react_lead','prob_react_'+problem.en],
+    [connHi('react_lead').hi, problem.reactHi],
+    [connHi('react_lead').en, problem.reactEn]
+  )));
+
+  if(length!=='short'){
+    var pa = PROBLEM_ATTEMPT[problem.en];
+    lines.push(Object.assign({role:'attempt'}, J(
+      ['attempt_lead','prob_attempt_'+problem.en],
+      [connHi('attempt_lead').hi, (pa?pa.hi:problem.attemptHi)],
+      [connHi('attempt_lead').en, (pa?pa.en:problem.attemptEn)]
+    )));
+  }
+  if(length==='long'){
+    lines.push(Object.assign({role:'snag'}, J(['prob_snag_'+problem.en], [problem.snagHi], [problem.snagEn])));
+    var lp = LOWPOINT[Math.floor(Math.random()*LOWPOINT.length)];
+    lines.push(Object.assign({role:'low'}, J(['low_'+LOWPOINT.indexOf(lp)], [lp.hi], [lp.en])));
+  }
+
+  var helpLeadId = (length==='long') ? 'help_lead_long' : 'help_lead';
+  lines.push(Object.assign({role:'help'}, J(
+    [helpLeadId,'helper_'+tk+'_'+THEMES[tk].helpers.indexOf(helper),'help_glue','prob_help_'+problem.en],
+    [connHi(helpLeadId).hi, helper.hi, connHi('help_glue').hi, problem.helpHi],
+    [connHi(helpLeadId).en, helper.en, connHi('help_glue').en, problem.helpEn]
+  )));
+  if(length==='long'){
+    lines.push(Object.assign({role:'plan'}, J(['plan_line'], [connHi('plan_line').hi], [connHi('plan_line').en])));
+  }
+  if(length!=='short'){
+    lines.push(Object.assign({role:'turn'}, J(
+      ['turn_lead','prob_turn_'+problem.en],
+      [connHi('turn_lead').hi, problem.turnHi],
+      [connHi('turn_lead').en, problem.turnEn]
+    )));
+  }
+
+  lines.push(Object.assign({role:'solved'}, J(
+    ['solved_lead','prob_solved_'+problem.en,'ending_'+ENDINGS.indexOf(ending)],
+    [connHi('solved_lead').hi, problem.solvedHi+',', ending.hi],
+    [connHi('solved_lead').en, problem.solvedEn+',', ending.en]
+  )));
+
+  if(length==='long'){
+    var rf = REFLECTION[Math.floor(Math.random()*REFLECTION.length)];
+    lines.push(Object.assign({role:'reflect'}, J(['reflect_'+REFLECTION.indexOf(rf)], [rf.hi], [rf.en])));
+  }
+  if(length!=='short'){
+    var pm = PROBLEM_MORAL[problem.en] || {hi:'हर मुश्किल कुछ न कुछ सिखा जाती है', en:'every hardship teaches us something'};
+    lines.push(Object.assign({role:'moral'}, J(
+      ['moral_lead','prob_moral_'+problem.en],
+      [connHi('moral_lead').hi, pm.hi],
+      [connHi('moral_lead').en, pm.en]
+    )));
+  }
+
   return lines;
 }
 
 function flatIds(lines){ return [].concat.apply([], lines.map(function(l){ return l.ids; })); }
-function missingIds(lines){ return flatIds(lines).filter(function(id){ return !clips[clipKey(id)]; }); }
+function missingIds(lines, narrator){
+  var nar = narrator || activeNarrator;
+  return flatIds(lines).filter(function(id){ return !clips[nar+"|"+id]; });
+}
 
-function pickPlayableStory(){
+function pickPlayableStory(narrator, length){
+  var nar = narrator || activeNarrator;
+  var len = length || 'short';
   var themeKeys = Object.keys(THEMES);
   for(var attempt=0; attempt<30; attempt++){
     var tk = rand(themeKeys), th = THEMES[tk];
     var hero = rand(th.heroes), helper = rand(th.helpers), place = rand(PLACES);
     var problem = rand(PROBLEMS), ending = rand(ENDINGS), trait = rand(TRAIT);
-    var lines = buildLines(tk, hero, place, problem, helper, ending, trait);
-    var missing = missingIds(lines);
+    var lines = buildLines(tk, hero, place, problem, helper, ending, trait, len);
+    var missing = missingIds(lines, nar);
     var meta = {tk:tk, hero:hero, helper:helper, place:place, problem:problem, ending:ending, trait:trait};
     if(missing.length===0) return {lines:lines, meta:meta};
     if(attempt===29) return {lines:lines, missing:missing, meta:meta};
   }
 }
 
-async function playSequence(ids){
+async function playSequence(ids, narrator){
+  var nar = narrator || activeNarrator;
   for(var i=0;i<ids.length;i++){
-    var c = clips[clipKey(ids[i])];
+    var c = clips[nar+"|"+ids[i]];
     if(!c) continue;
     await new Promise(function(resolve){
       var a = new Audio(c.url);
@@ -827,10 +1059,29 @@ document.getElementById('assembleBtn').onclick = function(){
 
 document.getElementById('clearBtn').onclick = function(){
   if(!confirm('Delete all of "'+narratorLabel(activeNarrator)+'"\u2019s recordings?')) return;
-  Object.keys(clips).forEach(function(k){ if(k.indexOf(activeNarrator+"|")===0) delete clips[k]; });
+  Object.keys(clips).forEach(function(k){ if(k.indexOf(activeNarrator+"|")===0){ delete clips[k]; dbDelete(k); } });
   updateProgress();
   buildCategoriesUI();
 };
+
+document.getElementById('retrimBtn').onclick = async function(){
+  var keys = Object.keys(clips).filter(function(k){ return k.indexOf(activeNarrator+"|")===0; });
+  if(keys.length===0){ alert('No recordings yet for '+narratorLabel(activeNarrator)+'.'); return; }
+  var btn = this; btn.disabled = true;
+  var statusEl = document.getElementById('retrimStatus');
+  for(var i=0;i<keys.length;i++){
+    statusEl.textContent = 'Trimming '+(i+1)+' / '+keys.length+'\u2026';
+    var k = keys[i];
+    var wav = await trimSilenceToWav(clips[k].blob);
+    clips[k] = {blob:wav, url:URL.createObjectURL(wav)};
+    await dbPut(k, wav);
+  }
+  statusEl.textContent = 'Done — trimmed '+keys.length+' recordings for '+narratorLabel(activeNarrator)+'.';
+  btn.disabled = false;
+  buildCategoriesUI();
+};
+
+function extFor(blob){ return (blob.type && blob.type.indexOf('wav')>=0) ? 'wav' : 'webm'; }
 
 document.getElementById('zipBtn').onclick = async function(){
   if(typeof JSZip === 'undefined'){ alert('JSZip did not load — check your internet connection and try again.'); return; }
@@ -840,7 +1091,7 @@ document.getElementById('zipBtn').onclick = async function(){
   keys.forEach(function(k){
     var sep = k.indexOf('|');
     var nid = k.slice(0,sep), itemId = k.slice(sep+1);
-    zip.folder(nid).file(itemId+'.webm', clips[k].blob);
+    zip.folder(nid).file(itemId+'.'+extFor(clips[k].blob), clips[k].blob);
   });
   var content = await zip.generateAsync({type:'blob'});
   var a = document.createElement('a');
@@ -861,117 +1112,6 @@ var THEME_VISUAL = {
   folk:     {grad:['#EAF7F5','#CFEFE9'], accent:'#2E8B8B', particles:['🏮','✨','🎭'], panel:'#2E8B8B'},
   epics:    {grad:['#FBEFF6','#F3D9EA'], accent:'#B0468C', particles:['🌸','✨','🪷'], panel:'#B0468C'}
 };
-
-var videoPick = null; // {tk, hero, place, problem, helper, ending, trait}
-
-function recordedTraits(){ return TRAIT.filter(function(t,i){ return clips[clipKey('trait_'+i)]; }); }
-function recordedPlaces(){ return PLACES.filter(function(p,i){ return clips[clipKey('place_'+i)]; }); }
-function recordedEndings(){ return ENDINGS.filter(function(e,i){ return clips[clipKey('ending_'+i)]; }); }
-function recordedHeroes(tk){ return THEMES[tk].heroes.filter(function(h,i){ return clips[clipKey('hero_'+tk+'_'+i)]; }); }
-function recordedHelpers(tk){ return THEMES[tk].helpers.filter(function(h,i){ return clips[clipKey('helper_'+tk+'_'+i)]; }); }
-function recordedProblems(){
-  return PROBLEMS.filter(function(p){
-    return ['prob_stmt_','prob_react_','prob_help_','prob_solved_'].every(function(pre){ return clips[clipKey(pre+p.en)]; });
-  });
-}
-function connectorsReady(){ return CONNECTORS.every(function(c){ return clips[clipKey(c.id)]; }); }
-
-function themesReady(){
-  return Object.keys(THEMES).filter(function(tk){
-    return recordedHeroes(tk).length>0 && recordedHelpers(tk).length>0;
-  });
-}
-
-function refreshVideoPanel(){
-  document.getElementById('videoNarratorLabel').textContent = narratorLabel(activeNarrator);
-  var prereqEl = document.getElementById('videoPrereqNote');
-  var missingPrereq = [];
-  if(!connectorsReady()) missingPrereq.push('all 11 connector phrases');
-  if(recordedTraits().length===0) missingPrereq.push('at least 1 hero trait');
-  if(recordedPlaces().length===0) missingPrereq.push('at least 1 place');
-  if(recordedEndings().length===0) missingPrereq.push('at least 1 ending');
-  if(recordedProblems().length===0) missingPrereq.push('at least 1 fully-recorded problem (all 4 beats)');
-  if(themesReady().length===0) missingPrereq.push('at least 1 theme with a recorded hero + helper');
-
-  var pickersHost = document.getElementById('videoPickers');
-  var genBtn = document.getElementById('genVideoBtn');
-  if(missingPrereq.length){
-    prereqEl.style.display='';
-    prereqEl.innerHTML = 'Record these for <b>'+narratorLabel(activeNarrator)+'</b> before making a video: '+missingPrereq.join('; ')+'.';
-    pickersHost.innerHTML='';
-    genBtn.disabled = true;
-    return;
-  }
-  prereqEl.style.display='none';
-  genBtn.disabled = false;
-  buildPickersUI();
-}
-
-function buildPickersUI(){
-  var host = document.getElementById('videoPickers');
-  var tks = themesReady();
-  if(!videoPick || tks.indexOf(videoPick.tk)===-1) randomizePick();
-  var tk = videoPick.tk, th = THEMES[tk];
-  var heroes = recordedHeroes(tk), helpers = recordedHelpers(tk);
-  var places = recordedPlaces(), problems = recordedProblems(), endings = recordedEndings();
-
-  function opts(list, current, labelFn){
-    return list.map(function(item,i){
-      return '<option value="'+i+'"'+(item===current?' selected':'')+'>'+labelFn(item)+'</option>';
-    }).join('');
-  }
-
-  host.innerHTML =
-    '<div class="narrator-row">'+
-      '<label>World: <select id="pk_theme">'+
-        tks.map(function(k){ return '<option value="'+k+'"'+(k===tk?' selected':'')+'>'+THEMES[k].label+'</option>'; }).join('')+
-      '</select></label>'+
-      '<label>Who: <select id="pk_hero">'+opts(heroes, videoPick.hero, function(h){ return h.emoji+' '+h.en; })+'</select></label>'+
-      '<label>Where: <select id="pk_place">'+opts(places, videoPick.place, function(p){ return p.emoji+' '+p.en; })+'</select></label>'+
-      '<label>Problem: <select id="pk_problem">'+opts(problems, videoPick.problem, function(p){ return p.emoji+' '+p.en; })+'</select></label>'+
-      '<label>Helper: <select id="pk_helper">'+opts(helpers, videoPick.helper, function(h){ return h.emoji+' '+h.en; })+'</select></label>'+
-      '<label>Ending: <select id="pk_ending">'+opts(endings, videoPick.ending, function(e){ return e.en; })+'</select></label>'+
-    '</div>';
-
-  function onPickerChange(){
-    var newTk = document.getElementById('pk_theme').value;
-    if(newTk !== videoPick.tk){ videoPick.tk = newTk; buildPickersUI(); showPickPreview(); return; }
-    videoPick.hero    = recordedHeroes(tk)[+document.getElementById('pk_hero').value];
-    videoPick.place   = recordedPlaces()[+document.getElementById('pk_place').value];
-    videoPick.problem = recordedProblems()[+document.getElementById('pk_problem').value];
-    videoPick.helper  = recordedHelpers(tk)[+document.getElementById('pk_helper').value];
-    videoPick.ending  = recordedEndings()[+document.getElementById('pk_ending').value];
-    showPickPreview();
-  }
-  ['pk_theme','pk_hero','pk_place','pk_problem','pk_helper','pk_ending'].forEach(function(id){
-    document.getElementById(id).onchange = onPickerChange;
-  });
-  showPickPreview();
-}
-
-function randomizePick(){
-  var tks = themesReady();
-  var tk = rand(tks);
-  videoPick = {
-    tk: tk,
-    hero: rand(recordedHeroes(tk)),
-    place: rand(recordedPlaces()),
-    problem: rand(recordedProblems()),
-    helper: rand(recordedHelpers(tk)),
-    ending: rand(recordedEndings()),
-    trait: rand(recordedTraits())
-  };
-}
-
-function showPickPreview(){
-  videoPick.trait = rand(recordedTraits());
-  var lines = buildLines(videoPick.tk, videoPick.hero, videoPick.place, videoPick.problem, videoPick.helper, videoPick.ending, videoPick.trait);
-  var el = document.getElementById('videoPickPreview');
-  el.style.display='';
-  el.innerHTML = lines.map(function(l){ return '<div class="hi">'+l.hi+'</div>'; }).join('');
-}
-
-document.getElementById('rerollBtn').onclick = function(){ randomizePick(); buildPickersUI(); };
 
 /* ---- canvas animation engine ---- */
 var stage = document.getElementById('stage');
@@ -1024,6 +1164,50 @@ function drawBackground(theme, elapsed){
   g.addColorStop(0, v.grad[0]); g.addColorStop(1, v.grad[1]);
   sctx.fillStyle = g;
   sctx.fillRect(0,0,W,H);
+}
+
+// Simple parallax scenery made from the story's own place emoji, at three depths,
+// each panning at a different speed — gives a real sense of a moving world
+// without needing any new art (stays inside the emoji-only design rule).
+function drawScenery(theme, place, elapsed){
+  sctx.save();
+  sctx.textAlign='center'; sctx.textBaseline='middle';
+  var layers = [
+    {size:260, y:H*0.30, alpha:0.16, speed:6,  count:2},
+    {size:170, y:H*0.42, alpha:0.22, speed:14, count:3},
+    {size:110, y:H*0.52, alpha:0.30, speed:24, count:3}
+  ];
+  layers.forEach(function(layer, li){
+    sctx.globalAlpha = layer.alpha;
+    sctx.font = layer.size+'px sans-serif';
+    for(var i=0;i<layer.count;i++){
+      var spacing = W/layer.count;
+      var x = ((i*spacing + elapsed*layer.speed) % (W+spacing)) - spacing/2;
+      sctx.fillText(place.emoji, x, layer.y + Math.sin(elapsed*0.5+li+i)*4);
+    }
+  });
+  // ground band, colour-matched to the theme, gives characters something to stand on
+  var v = THEME_VISUAL[theme];
+  sctx.globalAlpha = 1;
+  var grd = sctx.createLinearGradient(0,H*0.58,0,H*0.72);
+  grd.addColorStop(0, v.grad[1]); grd.addColorStop(1, v.accent);
+  sctx.globalAlpha = 0.35;
+  sctx.fillStyle = grd;
+  sctx.fillRect(0, H*0.58, W, H*0.16);
+  sctx.restore();
+}
+
+// A slow, continuous Ken-Burns style drift/zoom applied to the whole scene layer
+// (background + scenery + particles + characters, but NOT the caption panel) —
+// guarantees the frame is visibly alive every single moment of the video,
+// independent of whatever the characters themselves are doing.
+function cameraTransform(elapsed){
+  var scale = 1 + 0.035*Math.sin(elapsed*0.18);
+  var panX = Math.sin(elapsed*0.11)*W*0.015;
+  var panY = Math.cos(elapsed*0.09)*H*0.01;
+  sctx.translate(W/2+panX, H/2+panY);
+  sctx.scale(scale, scale);
+  sctx.translate(-W/2, -H/2);
 }
 
 function stepParticles(dt){
@@ -1103,42 +1287,105 @@ function drawCaptionPanel(hi, en, fadeT){
 
 function drawCharacters(theme, elapsed, phase, pick){
   var v = THEME_VISUAL[theme];
-  var bob = Math.sin(elapsed*2)*10;
-  // hero, persistent once intro has started
+  var bob = Math.sin(elapsed*2)*16;
+  var sway = Math.sin(elapsed*1.3)*10;
+  var heroX = W*0.38+sway, heroY = H*0.42+bob;
+
+  // 'low' (darkest moment): dim the whole scene first, hero sinks slightly
+  if(phase==='low'){
+    sctx.save(); sctx.globalAlpha=0.28; sctx.fillStyle='#2B2D5B'; sctx.fillRect(0,0,W,H); sctx.restore();
+    heroY += 18;
+  }
+  // 'snag': a little screen-shake to sell the obstacle
+  var shakeX=0, shakeY=0;
+  if(phase==='snag'){ shakeX=(Math.random()-0.5)*10; shakeY=(Math.random()-0.5)*10; }
+
+  sctx.save(); sctx.translate(shakeX, shakeY);
+
   if(phase!=='intro'){
-    var heroScale = phase==='trait' ? 1.15 : 1;
+    var heroScale = (phase==='trait') ? 1.15 : (phase==='attempt') ? 1.08 : (phase==='low') ? 0.9 : 1;
+    var heroLeanX = (phase==='attempt' || phase==='snag') ? W*0.03 : 0;
+
+    // ground shadow — squashes/stretches opposite the bob, sells the sense of weight and footsteps
+    var shadowScale = 1 - (bob/16)*0.35;
     sctx.save();
-    sctx.translate(W*0.38, H*0.42+bob);
+    sctx.translate(heroX+heroLeanX, H*0.58);
+    sctx.scale(shadowScale*1.4, shadowScale*0.5);
+    sctx.globalAlpha = 0.18;
+    sctx.fillStyle = '#2B2D5B';
+    sctx.beginPath(); sctx.arc(0,0,26,0,Math.PI*2); sctx.fill();
+    sctx.restore();
+
+    sctx.save();
+    sctx.translate(heroX+heroLeanX, heroY);
+    sctx.rotate(Math.sin(elapsed*1.3)*0.06);
     sctx.scale(heroScale, heroScale);
     sctx.font = '110px sans-serif';
     sctx.textAlign='center'; sctx.textBaseline='middle';
     sctx.fillText(pick.hero.emoji, 0, 0);
     sctx.restore();
-    // place emoji badge near hero during open
+
     if(phase==='open'){
       sctx.save(); sctx.globalAlpha=0.9;
       sctx.font='54px sans-serif'; sctx.textAlign='center'; sctx.textBaseline='middle';
       sctx.fillText(pick.place.emoji, W*0.75, H*0.24);
       sctx.restore();
     }
+    if(phase==='world'){
+      sctx.save(); sctx.globalAlpha=0.85;
+      sctx.font='50px sans-serif'; sctx.textAlign='center'; sctx.textBaseline='middle';
+      sctx.fillText('⭐', W*0.72, H*0.26 + Math.sin(elapsed*3)*6);
+      sctx.restore();
+    }
   }
-  // problem emoji, from 'problem' beat through 'react'
-  if(phase==='problem' || phase==='react'){
+
+  if(phase==='problem' || phase==='react' || phase==='attempt' || phase==='snag'){
     sctx.save(); sctx.globalAlpha=0.95;
     sctx.font='90px sans-serif'; sctx.textAlign='center'; sctx.textBaseline='middle';
-    sctx.fillText(pick.problem.emoji, W*0.66, H*0.28 + Math.sin(elapsed*6)*4);
+    var jitter = (phase==='snag') ? (Math.random()-0.5)*8 : Math.sin(elapsed*6)*4;
+    sctx.fillText(pick.problem.emoji, W*0.66+jitter, H*0.28);
     sctx.restore();
   }
-  // helper, slides in from the right during 'help', stays through 'solved'
-  if(phase==='help' || phase==='solved'){
+
+  if(phase==='help' || phase==='plan' || phase==='turn' || phase==='solved' || phase==='reflect' || phase==='moral'){
+    var helperBob = Math.sin(elapsed*2.4+1.1)*14;
+    var helperX = (phase==='plan') ? W*0.52 : W*0.66;
     sctx.save(); sctx.textAlign='center'; sctx.textBaseline='middle';
     sctx.font='90px sans-serif';
-    sctx.fillText(pick.helper.emoji, W*0.66, H*0.42+bob*0.6);
+    sctx.fillText(pick.helper.emoji, helperX, H*0.42+helperBob);
+    sctx.restore();
+    if(phase==='plan'){
+      sctx.save(); sctx.globalAlpha=0.9;
+      sctx.font='44px sans-serif';
+      sctx.fillText('🤝', W*0.45, H*0.5);
+      sctx.restore();
+    }
+  }
+
+  if(phase==='turn'){
+    sctx.save(); sctx.globalAlpha=0.9;
+    sctx.font='40px sans-serif'; sctx.textAlign='center'; sctx.textBaseline='middle';
+    sctx.fillText('✨', W*0.25, H*0.3+Math.sin(elapsed*8)*6);
+    sctx.fillText('✨', W*0.75, H*0.34+Math.cos(elapsed*8)*6);
     sctx.restore();
   }
+  if(phase==='reflect'){
+    sctx.save(); sctx.globalAlpha=0.85;
+    sctx.font='46px sans-serif'; sctx.textAlign='center'; sctx.textBaseline='middle';
+    sctx.fillText('💭', W*0.62, H*0.24);
+    sctx.restore();
+  }
+  if(phase==='moral'){
+    sctx.save(); sctx.globalAlpha=0.85;
+    sctx.font='46px sans-serif'; sctx.textAlign='center'; sctx.textBaseline='middle';
+    sctx.fillText('📖', W*0.62, H*0.24);
+    sctx.restore();
+  }
+
+  sctx.restore(); // undo shake translate
 }
 
-function drawTitleCard(pick, t){
+function drawTitleCard(pick, narrator, t){
   sctx.save();
   sctx.globalAlpha = clamp(1 - Math.abs(t-0.7)/0.7, 0, 1);
   sctx.fillStyle = THEME_VISUAL[pick.tk].accent;
@@ -1149,11 +1396,11 @@ function drawTitleCard(pick, t){
   sctx.fillText(pick.hero.hi+' की कहानी', W/2, H*0.55);
   sctx.font = '400 18px system-ui, sans-serif';
   sctx.fillStyle='#6B6D94';
-  sctx.fillText('A story in '+narratorLabel(activeNarrator)+'\u2019s voice', W/2, H*0.60);
+  sctx.fillText('A story in '+narratorLabel(narrator)+'\u2019s voice', W/2, H*0.60);
   sctx.restore();
 }
 
-function drawOutroCard(pick, t){
+function drawOutroCard(pick, narrator, t){
   sctx.save();
   sctx.globalAlpha = clamp(t/0.6, 0, 1);
   sctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -1166,13 +1413,13 @@ function drawOutroCard(pick, t){
   sctx.fillText('समाप्त', W/2, H*0.5);
   sctx.font = '400 20px system-ui, sans-serif';
   sctx.fillStyle = '#6B6D94';
-  sctx.fillText('The End · told by '+narratorLabel(activeNarrator), W/2, H*0.57);
+  sctx.fillText('The End · told by '+narratorLabel(narrator), W/2, H*0.57);
   sctx.restore();
 }
 
 /* ---- audio decode + timeline ---- */
-async function decodeClip(ctx, id){
-  var blob = clips[clipKey(id)].blob;
+async function decodeClip(ctx, id, narrator){
+  var blob = clips[narrator+"|"+id].blob;
   var arr = await blob.arrayBuffer();
   return ctx.decodeAudioData(arr.slice(0));
 }
@@ -1188,15 +1435,13 @@ function pickSupportedMime(){
   return '';
 }
 
-async function generateVideo(){
-  var lines = buildLines(videoPick.tk, videoPick.hero, videoPick.place, videoPick.problem, videoPick.helper, videoPick.ending, videoPick.trait);
-  var missing = missingIds(lines);
-  var statusEl = document.getElementById('renderStatus');
-  var resultEl = document.getElementById('videoResult');
+// meta = {tk, hero, place, problem, helper, ending} — everything drawCharacters/drawTitleCard/drawOutroCard need visually.
+async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl, genBtn){
+  var missing = missingIds(lines, narrator);
   resultEl.innerHTML = '';
-  if(missing.length){ statusEl.textContent = 'Missing recordings — pick different options.'; return; }
+  if(missing.length){ statusEl.textContent = 'Missing recordings for '+narratorLabel(narrator)+' — record those first, or pick a different combination.'; return; }
 
-  document.getElementById('genVideoBtn').disabled = true;
+  genBtn.disabled = true;
   statusEl.textContent = 'Preparing audio\u2026';
 
   var AC = window.AudioContext || window.webkitAudioContext;
@@ -1204,7 +1449,7 @@ async function generateVideo(){
   var dest = actx.createMediaStreamDestination();
   var ids = flatIds(lines);
   var buffers = {};
-  for(var i=0;i<ids.length;i++){ buffers[ids[i]] = await decodeClip(actx, ids[i]); }
+  for(var i=0;i<ids.length;i++){ buffers[ids[i]] = await decodeClip(actx, ids[i], narrator); }
 
   var GAP = 0.18, LINE_GAP = 0.4, LEAD_IN = 1.5, OUTRO_LEN = 2.4;
   var t = LEAD_IN;
@@ -1218,9 +1463,22 @@ async function generateVideo(){
   var audioEnd = t;
   var totalDuration = audioEnd + OUTRO_LEN;
 
-  seedParticles(videoPick.tk);
-  var canvasStream = stage.captureStream(30);
-  var combined = new MediaStream(canvasStream.getVideoTracks().concat(dest.stream.getAudioTracks()));
+  seedParticles(meta.tk);
+  // Manual frame-driven capture (captureStream(0) + track.requestFrame()) instead of an
+  // automatic timed capture (captureStream(30)) — the automatic mode is known to produce
+  // a frozen or near-static video on several mobile browsers, since the browser decides
+  // when to sample the canvas rather than us. Requesting each frame explicitly, right
+  // after we actually draw it, is the reliable cross-browser pattern. If a browser doesn't
+  // support requestFrame() at all, fall back to automatic timed capture rather than
+  // risking a blank recording.
+  var canvasStream = canvasEl.captureStream(0);
+  var videoTrack = canvasStream.getVideoTracks()[0];
+  var manualCapture = !!(videoTrack && typeof videoTrack.requestFrame === 'function');
+  if(!manualCapture){
+    canvasStream = canvasEl.captureStream(30);
+    videoTrack = canvasStream.getVideoTracks()[0];
+  }
+  var combined = new MediaStream([videoTrack].concat(dest.stream.getAudioTracks()));
   var mime = pickSupportedMime();
   var rec = mime ? new MediaRecorder(combined, {mimeType:mime}) : new MediaRecorder(combined);
   var chunks = [];
@@ -1250,35 +1508,49 @@ async function generateVideo(){
     if(lastTs===null) lastTs = ts;
     var dt = Math.min((ts-lastTs)/1000, 0.05);
     lastTs = ts;
+    // Compute elapsed/continuation OUTSIDE any drawing try/catch — a drawing bug must
+    // never again be able to silently freeze the animation or strand the recording.
     var elapsed = actx.currentTime - startTime;
 
-    stepParticles(dt);
-    drawBackground(videoPick.tk, elapsed);
-    drawParticles();
+    try{
+      stepParticles(dt);
+      sctx.save();
+      cameraTransform(elapsed);
+      drawBackground(meta.tk, elapsed);
+      drawScenery(meta.tk, meta.place, elapsed);
+      drawParticles();
 
-    if(elapsed < LEAD_IN*0.9){
-      drawTitleCard(videoPick, elapsed/LEAD_IN);
-    } else if(elapsed >= audioEnd){
-      drawCharacters(videoPick.tk, elapsed, 'solved', videoPick);
-      if(confetti.length===0 && elapsed < audioEnd+0.1) burstConfetti();
-      stepConfetti(dt); drawConfetti();
-      drawOutroCard(videoPick, elapsed-audioEnd);
-    } else {
-      var active = lineTimings.find(function(l){ return elapsed>=l.start && elapsed<l.end; });
-      var phase = active ? active.role : (elapsed<lineTimings[0].start?'intro':'solved');
-      drawCharacters(videoPick.tk, elapsed, phase, videoPick);
-      if(phase==='solved'){
-        if(confetti.length===0) burstConfetti();
+      if(elapsed < LEAD_IN*0.9){
+        sctx.restore();
+        drawTitleCard(meta, narrator, elapsed/LEAD_IN);
+      } else if(elapsed >= audioEnd){
+        drawCharacters(meta.tk, elapsed, 'solved', meta);
+        if(confetti.length===0 && elapsed < audioEnd+0.1) burstConfetti();
         stepConfetti(dt); drawConfetti();
+        sctx.restore();
+        drawOutroCard(meta, narrator, elapsed-audioEnd);
+      } else {
+        var active = lineTimings.find(function(l){ return elapsed>=l.start && elapsed<l.end; });
+        var phase = active ? active.role : (elapsed<lineTimings[0].start ? 'intro' : 'solved');
+        drawCharacters(meta.tk, elapsed, phase, meta);
+        if(phase==='solved'){
+          if(confetti.length===0) burstConfetti();
+          stepConfetti(dt); drawConfetti();
+        }
+        sctx.restore(); // caption panel is drawn in fixed screen space, not affected by camera drift
+        if(active){
+          var fadeIn = clamp((elapsed-active.start)/0.25, 0, 1);
+          var fadeOut = clamp((active.end-elapsed)/0.25, 0, 1);
+          drawCaptionPanel(active.hi, active.en, Math.min(fadeIn,fadeOut));
+        }
       }
-      if(active){
-        var fadeIn = clamp((elapsed-active.start)/0.25, 0, 1);
-        var fadeOut = clamp((active.end-elapsed)/0.25, 0, 1);
-        drawCaptionPanel(active.hi, active.en, Math.min(fadeIn,fadeOut));
-      }
+      statusEl.textContent = 'Rendering\u2026 '+elapsed.toFixed(1)+'s / '+totalDuration.toFixed(1)+'s';
+    } catch(drawErr){
+      console.log('Render frame error (animation continues):', drawErr);
     }
 
-    statusEl.textContent = 'Rendering\u2026 '+elapsed.toFixed(1)+'s / '+totalDuration.toFixed(1)+'s';
+    // Push this drawn frame into the recording explicitly when in manual-capture mode.
+    if(manualCapture){ try{ videoTrack.requestFrame(); } catch(e){} }
 
     if(elapsed < totalDuration){ requestAnimationFrame(frame); }
     else { rec.stop(); }
@@ -1287,24 +1559,143 @@ async function generateVideo(){
 
   var blob = await finished;
   statusEl.textContent = 'Done! ('+(mime||'default format')+')';
-  document.getElementById('genVideoBtn').disabled = false;
+  genBtn.disabled = false;
   var url = URL.createObjectURL(blob);
   var ext = (mime.indexOf('mp4')>=0) ? 'mp4' : 'webm';
-  var fname = 'story_'+videoPick.hero.en.replace(/[^a-z0-9]+/gi,'_')+'_'+activeNarrator+'.'+ext;
+  var fname = 'story_'+meta.hero.en.replace(/[^a-z0-9]+/gi,'_')+'_'+narrator+'.'+ext;
   resultEl.innerHTML =
     '<video controls playsinline style="width:100%; max-width:300px; border-radius:14px; display:block; margin:0 auto" src="'+url+'"></video>'+
     '<div style="text-align:center; margin-top:10px"><a href="'+url+'" download="'+fname+'"><button class="btn-primary">⬇️ Download '+fname+'</button></a></div>'+
     (ext==='webm' ? '<div class="note" style="text-align:center">This device recorded in WebM — plays great on Android/Chrome. If it won\u2019t open on an iPhone, play it here and screen-record, or check for a "Save video" option in Safari.</div>' : '');
 }
 
-document.getElementById('genVideoBtn').onclick = function(){ generateVideo().catch(function(e){
-  document.getElementById('renderStatus').textContent = 'Something went wrong: '+e.message;
-  document.getElementById('genVideoBtn').disabled = false;
-}); };
+/* =====================================================================
+   PART 2 — Narrate a Story: original-style chip selectors + narrator + length
+   ===================================================================== */
+var storyState = { theme:'everyday', heroIdx:0, placeIdx:0, problemIdx:0, helperIdx:0, endingIdx:0, narrator:null, length:'short' };
 
-/* keep the video panel's prerequisites/pickers in sync with narrator + recordings */
-var _origUpdateProgress = updateProgress;
-updateProgress = function(){ _origUpdateProgress(); refreshVideoPanel(); };
+function chipBtn(label, pressed, dataAttrs){
+  var attrs = Object.keys(dataAttrs).map(function(k){ return 'data-'+k+'="'+dataAttrs[k]+'"'; }).join(' ');
+  return '<button class="chip" '+attrs+' aria-pressed="'+(pressed?'true':'false')+'">'+label+'</button>';
+}
+
+function renderNarrateSelectors(){
+  if(!storyState.narrator) storyState.narrator = activeNarrator;
+  var th = THEMES[storyState.theme];
+
+  document.getElementById('n_themeChips').innerHTML = Object.keys(THEMES).map(function(k){
+    return chipBtn(THEMES[k].label, k===storyState.theme, {theme:k});
+  }).join('');
+  document.getElementById('n_heroChips').innerHTML = th.heroes.map(function(h,i){
+    return chipBtn(h.emoji+' '+h.en, i===storyState.heroIdx, {hero:i});
+  }).join('');
+  document.getElementById('n_placeChips').innerHTML = PLACES.map(function(p,i){
+    return chipBtn(p.emoji+' '+p.en, i===storyState.placeIdx, {place:i});
+  }).join('');
+  document.getElementById('n_problemChips').innerHTML = PROBLEMS.map(function(p,i){
+    return chipBtn(p.emoji+' '+p.en, i===storyState.problemIdx, {problem:i});
+  }).join('');
+  document.getElementById('n_helperChips').innerHTML = th.helpers.map(function(h,i){
+    return chipBtn(h.emoji+' '+h.en, i===storyState.helperIdx, {helper:i});
+  }).join('');
+  document.getElementById('n_endingChips').innerHTML = ENDINGS.map(function(e,i){
+    return chipBtn(e.emoji+' '+e.en, i===storyState.endingIdx, {ending:i});
+  }).join('');
+  document.getElementById('n_narratorChips').innerHTML = NARRATORS.map(function(n){
+    return chipBtn(n.label, n.id===storyState.narrator, {narrator:n.id});
+  }).join('');
+  document.querySelectorAll('#n_lenChips .chip').forEach(function(b){
+    b.setAttribute('aria-pressed', b.getAttribute('data-len')===storyState.length ? 'true' : 'false');
+  });
+
+  function wire(containerId, key, parse){
+    document.getElementById(containerId).querySelectorAll('.chip').forEach(function(b){
+      b.onclick = function(){
+        var val = b.getAttribute('data-'+key);
+        storyState[key==='theme'?'theme':key==='narrator'?'narrator':key+'Idx'] = parse ? parse(val) : val;
+        if(key==='theme'){ storyState.heroIdx=0; storyState.helperIdx=0; }
+        renderNarrateSelectors();
+      };
+    });
+  }
+  wire('n_themeChips','theme');
+  wire('n_heroChips','hero',Number);
+  wire('n_placeChips','place',Number);
+  wire('n_problemChips','problem',Number);
+  wire('n_helperChips','helper',Number);
+  wire('n_endingChips','ending',Number);
+  wire('n_narratorChips','narrator');
+  document.getElementById('n_lenChips').querySelectorAll('.chip').forEach(function(b){
+    b.onclick = function(){ storyState.length = b.getAttribute('data-len'); renderNarrateSelectors(); };
+  });
+}
+
+function currentSelection(){
+  var th = THEMES[storyState.theme];
+  return {
+    tk: storyState.theme,
+    hero: th.heroes[storyState.heroIdx],
+    place: PLACES[storyState.placeIdx],
+    problem: PROBLEMS[storyState.problemIdx],
+    helper: th.helpers[storyState.helperIdx],
+    ending: ENDINGS[storyState.endingIdx],
+    trait: rand(TRAIT)
+  };
+}
+
+document.getElementById('n_surpriseBtn').onclick = function(){
+  var tk = rand(Object.keys(THEMES)), th = THEMES[tk];
+  storyState.theme = tk;
+  storyState.heroIdx = Math.floor(Math.random()*th.heroes.length);
+  storyState.placeIdx = Math.floor(Math.random()*PLACES.length);
+  storyState.problemIdx = Math.floor(Math.random()*PROBLEMS.length);
+  storyState.helperIdx = Math.floor(Math.random()*th.helpers.length);
+  storyState.endingIdx = Math.floor(Math.random()*ENDINGS.length);
+  renderNarrateSelectors();
+};
+
+function buildCurrentLines(){
+  var sel = currentSelection();
+  var lines = buildLines(sel.tk, sel.hero, sel.place, sel.problem, sel.helper, sel.ending, sel.trait, storyState.length);
+  return {lines:lines, meta:sel};
+}
+
+document.getElementById('n_playBtn').onclick = function(){
+  var built = buildCurrentLines();
+  var missing = missingIds(built.lines, storyState.narrator);
+  var missEl = document.getElementById('n_missing');
+  var outEl = document.getElementById('n_storyOut');
+  if(missing.length){
+    missEl.textContent = narratorLabel(storyState.narrator)+' is missing '+missing.length+' recording(s) for this exact story — record those, or try Surprise Me for a combination that\u2019s ready.';
+    outEl.style.display='none';
+    return;
+  }
+  missEl.textContent = '';
+  outEl.style.display='';
+  outEl.innerHTML = '<div class="en" style="margin-bottom:6px">Playing in: <b>'+narratorLabel(storyState.narrator)+'</b> · '+storyState.length+'</div>'+
+    built.lines.map(function(l){ return '<div class="hi">'+l.hi+'</div>'; }).join('');
+  playSequence(flatIds(built.lines), storyState.narrator);
+};
+
+document.getElementById('n_filmBtn').onclick = function(){
+  var built = buildCurrentLines();
+  var missing = missingIds(built.lines, storyState.narrator);
+  var missEl = document.getElementById('n_missing');
+  if(missing.length){
+    missEl.textContent = narratorLabel(storyState.narrator)+' is missing '+missing.length+' recording(s) for this exact story — record those, or try Surprise Me for a combination that\u2019s ready.';
+    return;
+  }
+  missEl.textContent = '';
+  var statusEl = document.getElementById('renderStatus');
+  var resultEl = document.getElementById('videoResult');
+  var canvasEl = document.getElementById('stage');
+  var btn = document.getElementById('n_filmBtn');
+  generateVideo(built.lines, built.meta, storyState.narrator, statusEl, resultEl, canvasEl, btn).catch(function(e){
+    statusEl.textContent = 'Something went wrong: '+e.message;
+    btn.disabled = false;
+    console.log('generateVideo error:', e);
+  });
+};
 
 populateNarratorSelect();
 buildCategoriesUI();
@@ -1322,6 +1713,21 @@ if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(function(e){ console.log('SW registration failed:', e); });
   });
 }
+renderNarrateSelectors();
+
+(async function loadPersistedClips(){
+  var stored = await dbLoadAll(); // key -> blob
+  var n = 0;
+  Object.keys(stored).forEach(function(key){
+    var blob = stored[key];
+    clips[key] = {blob:blob, url:URL.createObjectURL(blob)};
+    n++;
+  });
+  if(n>0){
+    updateProgress();
+    buildCategoriesUI();
+  }
+})();
 </script>
 </body>
 </html>
