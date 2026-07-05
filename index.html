@@ -163,6 +163,10 @@
     </div>
     <div id="n_missing" class="missing"></div>
     <div id="n_storyOut" class="story-out" style="display:none"></div>
+    <div style="margin-top:10px">
+      <button class="btn-secondary" id="spriteCheckBtn">🖼️ Check which character art actually loads</button>
+      <div id="spriteCheckResult" class="note"></div>
+    </div>
     <div style="margin-top:14px">
       <canvas id="stage" width="540" height="960" style="width:100%; max-width:300px; display:block; margin:0 auto; border-radius:14px; background:#FFF9F0; border:1px solid var(--line)"></canvas>
     </div>
@@ -1344,7 +1348,7 @@ function loadSprite(id){
     var img = new Image();
     img.onload = function(){ SPRITE_CACHE[id] = img; resolve(img); };
     img.onerror = function(){ SPRITE_CACHE[id] = null; resolve(null); };
-    img.src = 'sprites/'+id+'.png';
+    img.src = id+'.png';
   });
 }
 function spriteIdFor(kind, tk, item){
@@ -1725,9 +1729,15 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   var url = URL.createObjectURL(blob);
   var ext = (mime.indexOf('mp4')>=0) ? 'mp4' : 'webm';
   var fname = 'story_'+meta.hero.en.replace(/[^a-z0-9]+/gi,'_')+'_'+narrator+'.'+ext;
+  var heroSpritePath = spriteIdFor('hero', meta.tk, meta.hero)+'.png';
+  var helperSpritePath = spriteIdFor('helper', meta.tk, meta.helper)+'.png';
   resultEl.innerHTML =
     '<video controls playsinline style="width:100%; max-width:300px; border-radius:14px; display:block; margin:0 auto" src="'+url+'"></video>'+
     '<div style="text-align:center; margin-top:10px"><a href="'+url+'" download="'+fname+'"><button class="btn-primary">⬇️ Download '+fname+'</button></a></div>'+
+    '<div class="note" style="text-align:center; margin-top:8px">'+
+      'Hero art: '+(meta.heroSprite ? '✅ loaded' : '❌ not found — tried <code>'+heroSpritePath+'</code>')+'<br>'+
+      'Helper art: '+(meta.helperSprite ? '✅ loaded' : '❌ not found — tried <code>'+helperSpritePath+'</code>')+
+    '</div>'+
     (ext==='webm' ? '<div class="note" style="text-align:center">This device recorded in WebM — plays great on Android/Chrome. If it won\u2019t open on an iPhone, play it here and screen-record, or check for a "Save video" option in Safari.</div>' : '');
 }
 
@@ -1914,6 +1924,23 @@ renderNarrateSelectors();
     buildCategoriesUI();
   }
 })();
+
+document.getElementById('spriteCheckBtn').onclick = async function(){
+  var el = document.getElementById('spriteCheckResult');
+  el.textContent = 'Checking\u2026';
+  var allIds = [];
+  Object.keys(THEMES).forEach(function(tk){
+    THEMES[tk].heroes.forEach(function(h,i){ allIds.push('hero_'+tk+'_'+i); });
+    THEMES[tk].helpers.forEach(function(h,i){ allIds.push('helper_'+tk+'_'+i); });
+  });
+  var found = [], missing = 0;
+  for(var i=0;i<allIds.length;i++){
+    var img = await loadSprite(allIds[i]);
+    if(img) found.push(allIds[i]); else missing++;
+  }
+  el.innerHTML = '<b>'+found.length+' image(s) load correctly</b> out of '+allIds.length+' possible characters ('+missing+' have no art yet — that\u2019s expected until you generate more).<br>'+
+    (found.length ? 'Working: '+found.join(', ') : '<span style="color:var(--coral)">None loaded at all — check that the .png files were actually pushed to your repo, sitting right next to index.html (not inside a subfolder), and that filenames match exactly (they\u2019re case-sensitive on GitHub Pages).</span>');
+};
 </script>
 </body>
 </html>
