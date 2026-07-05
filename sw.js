@@ -1,5 +1,5 @@
 /* Voice Studio service worker — offline app shell, cache-first */
-const CACHE = 'voice-studio-v7';
+const CACHE = 'voice-studio-v8';
 const ASSETS = [
   './',
   './index.html',

@@ -1609,9 +1609,16 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   var chunks = [];
   rec.ondataavailable = function(e){ if(e.data && e.data.size) chunks.push(e.data); };
 
-  var finished = new Promise(function(resolve){
-    rec.onstop = function(){ resolve(new Blob(chunks, {type: mime||'video/webm'})); };
-  });
+  var resolveFinished, finishedAlready = false;
+  var finished = new Promise(function(resolve){ resolveFinished = resolve; });
+  function finishNow(reason){
+    if(finishedAlready) return; // resolving twice is harmless, but keep the log clean
+    finishedAlready = true;
+    if(reason) console.log('Video finalize:', reason);
+    resolveFinished(new Blob(chunks, {type: mime||'video/webm'}));
+  }
+  rec.onstop = function(){ finishNow(); };
+  rec.onerror = function(e){ finishNow('MediaRecorder error event — '+((e&&e.error&&e.error.message)||'unknown')); };
 
   rec.start();
   var startTime = actx.currentTime + 0.12;
@@ -1690,13 +1697,25 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     if(manualCapture){ try{ videoTrack.requestFrame(); } catch(e){} }
 
     if(elapsed < totalDuration){ requestAnimationFrame(frame); }
-    else { rec.stop(); }
+    else {
+      try{ rec.stop(); } catch(stopErr){ finishNow('rec.stop() threw — '+stopErr.message); }
+      // Safety net: if the browser never fires onstop/onerror for some reason, don't hang
+      // forever — finalize with whatever was actually captured after a few seconds.
+      setTimeout(function(){
+        if(!finishedAlready) statusEl.textContent = 'Finishing up\u2026 (taking longer than expected)';
+        setTimeout(function(){ finishNow('watchdog timeout — browser never signalled completion'); }, 4000);
+      }, 3000);
+    }
   }
   requestAnimationFrame(frame);
 
   var blob = await finished;
-  statusEl.textContent = 'Done! ('+(mime||'default format')+')';
   genBtn.disabled = false;
+  if(!blob || blob.size < 1000){
+    statusEl.textContent = 'The recording didn\u2019t capture properly on this browser (got '+(blob?blob.size:0)+' bytes). Try again, or try Chrome on Android — video capture support varies by browser.';
+    return;
+  }
+  statusEl.textContent = 'Done! ('+(mime||'default format')+')';
   var url = URL.createObjectURL(blob);
   var ext = (mime.indexOf('mp4')>=0) ? 'mp4' : 'webm';
   var fname = 'story_'+meta.hero.en.replace(/[^a-z0-9]+/gi,'_')+'_'+narrator+'.'+ext;
