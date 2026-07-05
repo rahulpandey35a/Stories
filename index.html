@@ -12,6 +12,13 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Voice Studio">
 <title>Voice Studio — Story Maker prototype</title>
+<script>
+  // Applied as early as possible (before the stylesheet paints) to avoid a flash of the wrong theme.
+  try{
+    var savedTheme = localStorage.getItem('voiceStudioTheme');
+    if(savedTheme==='dark') document.documentElement.setAttribute('data-theme','dark');
+  } catch(e){}
+</script>
 <style>
   :root{
     --paper:#FFF9F0; --card:#FFFFFF; --ink:#2B2D5B; --ink-soft:#6B6D94;
@@ -19,6 +26,16 @@
     --line:#EFE6D6; --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;
     --dev:"Noto Sans Devanagari","Nirmala UI","Mangal",system-ui,sans-serif;
   }
+  html[data-theme="dark"]{
+    --paper:#1B1C2E; --card:#252740; --ink:#F0EEF9; --ink-soft:#A9ACC7;
+    --coral:#FF8367; --teal:#3FCDBB; --sun:#F6C645; --grape:#B29CF0;
+    --line:#3A3D5C;
+  }
+  html[data-theme="dark"] .btn-primary{color:#12131f}
+  html[data-theme="dark"] .btn-danger{background:var(--card)}
+  html[data-theme="dark"] select{background:var(--card); color:var(--ink)}
+  html[data-theme="dark"] .chip{background:var(--card); color:var(--ink)}
+  html[data-theme="dark"] .story-out{background:var(--card)}
   *{box-sizing:border-box} html,body{margin:0}
   body{background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.5; padding:0 0 60px}
   .wrap{max-width:760px; margin:0 auto; padding:20px 16px 60px}
@@ -69,14 +86,19 @@
   .selectors{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:10px 0}
   .selbox .lbl{font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); font-weight:700; margin-bottom:6px}
   .chips{display:flex; gap:6px; flex-wrap:wrap}
-  .chip{border:1.5px solid var(--line); background:#fff; color:var(--ink); border-radius:999px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer}
+  .chip{border:1.5px solid var(--line); background:#fff; color:var(--ink); border-radius:999px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; display:inline-flex; flex-direction:column; align-items:center; line-height:1.3; gap:1px}
   .chip[aria-pressed="true"]{background:var(--teal); border-color:var(--teal); color:#fff}
   .chip small{font-weight:400; opacity:.85}
+  .chip-hi{font-family:var(--dev); font-size:13px}
+  .chip-en{font-size:10px; font-weight:500; opacity:.75}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🎙️ Story Maker — Voice &amp; Film Studio</h1>
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
+    <h1>🎙️ Story Maker — Voice &amp; Film Studio</h1>
+    <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
+  </div>
   <div class="sub">Two parts: record family voices below, then jump to Part 2 to build and narrate a story exactly like the original app — in whichever voice you choose.</div>
   <h1 style="font-size:19px">🎙️ Part 1 — Record Voices</h1>
 
@@ -129,9 +151,9 @@
       <div class="selbox"><div class="lbl">Ending</div><div class="chips" id="n_endingChips"></div></div>
       <div class="selbox"><div class="lbl">Voice</div><div class="chips" id="n_narratorChips"></div></div>
       <div class="selbox"><div class="lbl">Length</div><div class="chips" id="n_lenChips">
-        <button class="chip" data-len="short">Short</button>
-        <button class="chip" data-len="medium">Medium</button>
-        <button class="chip" data-len="long">Long</button>
+        <button class="chip" data-len="short"><span class="chip-hi">छोटी</span><span class="chip-en">Short</span></button>
+        <button class="chip" data-len="medium"><span class="chip-hi">मध्यम</span><span class="chip-en">Medium</span></button>
+        <button class="chip" data-len="long"><span class="chip-hi">लंबी</span><span class="chip-en">Long</span></button>
       </div></div>
     </div>
     <div class="top-actions" style="margin-top:6px">
@@ -577,6 +599,7 @@ function loadNarratorList(){
 }
 
 /* ---------- narrators (family members) ---------- */
+var DEFAULT_NARRATOR_ID = "default";
 var NARRATORS = loadNarratorList() || [
   {id:"kid", label:"Kid"},
   {id:"father", label:"Father"},
@@ -588,7 +611,18 @@ var NARRATORS = loadNarratorList() || [
 ];
 var activeNarrator = NARRATORS[0].id;
 
-function narratorLabel(id){ var n = NARRATORS.find(function(n){ return n.id===id; }); return n?n.label:id; }
+// Real people to record for, in Part 1 — the Default (auto voice) option never appears here,
+// since there is nothing to record for it.
+function recordableNarrators(){ return NARRATORS; }
+// Every choice available in Part 2 — real people plus the always-ready Default option.
+function allNarratorChoices(){
+  return [{id:DEFAULT_NARRATOR_ID, label:"Default (no recording needed)"}].concat(NARRATORS);
+}
+
+function narratorLabel(id){
+  if(id===DEFAULT_NARRATOR_ID) return "Default (no recording needed)";
+  var n = NARRATORS.find(function(n){ return n.id===id; }); return n?n.label:id;
+}
 function clipKey(id){ return activeNarrator+"|"+id; }
 
 /* ---------- recording state — persisted to IndexedDB as you go, so nothing is lost on reload ---------- */
@@ -1011,6 +1045,7 @@ function buildLines(tk, hero, place, problem, helper, ending, trait, length){
 function flatIds(lines){ return [].concat.apply([], lines.map(function(l){ return l.ids; })); }
 function missingIds(lines, narrator){
   var nar = narrator || activeNarrator;
+  if(nar === DEFAULT_NARRATOR_ID) return []; // Default speaks on the fly, nothing to record
   return flatIds(lines).filter(function(id){ return !clips[nar+"|"+id]; });
 }
 
@@ -1040,6 +1075,22 @@ async function playSequence(ids, narrator){
       a.onended = resolve;
       a.onerror = resolve;
       a.play();
+    });
+  }
+}
+
+// Speaks each line's Hindi text aloud via the browser's built-in voice — used only for the
+// no-recording "Default" narrator, so a story can be heard without anyone recording anything.
+async function playSequenceTTS(lines){
+  if(!('speechSynthesis' in window)){ alert('This browser has no built-in text-to-speech voice available.'); return; }
+  for(var i=0;i<lines.length;i++){
+    await new Promise(function(resolve){
+      try{
+        var u = new SpeechSynthesisUtterance(lines[i].hi);
+        u.lang = 'hi-IN'; u.rate = 0.95;
+        u.onend = resolve; u.onerror = resolve;
+        speechSynthesis.speak(u);
+      } catch(e){ resolve(); }
     });
   }
 }
@@ -1473,13 +1524,29 @@ function pickSupportedMime(){
 }
 
 // meta = {tk, hero, place, problem, helper, ending} — everything drawCharacters/drawTitleCard/drawOutroCard need visually.
+function estimateSpeechDuration(hi){
+  // rough Hindi speech pace estimate — used only for the no-recording "Default" narrator,
+  // where there is no real audio clip to measure a duration from.
+  return Math.max(0.9, hi.length*0.09);
+}
+
+function speakLineTTS(hi){
+  if(!('speechSynthesis' in window)) return;
+  try{
+    var u = new SpeechSynthesisUtterance(hi);
+    u.lang = 'hi-IN'; u.rate = 0.95;
+    speechSynthesis.speak(u);
+  } catch(e){}
+}
+
 async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl, genBtn){
-  var missing = missingIds(lines, narrator);
+  var isDefault = (narrator === 'default');
+  var missing = isDefault ? [] : missingIds(lines, narrator);
   resultEl.innerHTML = '';
   if(missing.length){ statusEl.textContent = 'Missing recordings for '+narratorLabel(narrator)+' — record those first, or pick a different combination.'; return; }
 
   genBtn.disabled = true;
-  statusEl.textContent = 'Preparing audio\u2026';
+  statusEl.textContent = isDefault ? 'Preparing preview (no voice will be recorded)\u2026' : 'Preparing audio\u2026';
 
   meta.heroSprite = await loadSprite(spriteIdFor('hero', meta.tk, meta.hero));
   meta.helperSprite = await loadSprite(spriteIdFor('helper', meta.tk, meta.helper));
@@ -1487,19 +1554,33 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   var AC = window.AudioContext || window.webkitAudioContext;
   var actx = new AC();
   var dest = actx.createMediaStreamDestination();
-  var ids = flatIds(lines);
-  var buffers = {};
-  for(var i=0;i<ids.length;i++){ buffers[ids[i]] = await decodeClip(actx, ids[i], narrator); }
-
   var GAP = 0.18, LINE_GAP = 0.4, LEAD_IN = 1.5, OUTRO_LEN = 2.4;
-  var t = LEAD_IN;
-  var lineTimings = lines.map(function(line){
-    var start = t;
-    line.ids.forEach(function(id, idx){ if(idx>0) t += GAP; t += buffers[id].duration; });
-    var end = t;
-    t += LINE_GAP;
-    return {role:line.role, hi:line.hi, en:line.en, start:start, end:end};
-  });
+  var buffers = {}, t = LEAD_IN, lineTimings;
+
+  if(!isDefault){
+    var ids = flatIds(lines);
+    for(var i=0;i<ids.length;i++){ buffers[ids[i]] = await decodeClip(actx, ids[i], narrator); }
+    lineTimings = lines.map(function(line){
+      var start = t;
+      line.ids.forEach(function(id, idx){ if(idx>0) t += GAP; t += buffers[id].duration; });
+      var end = t;
+      t += LINE_GAP;
+      return {role:line.role, hi:line.hi, en:line.en, start:start, end:end};
+    });
+  } else {
+    // No recordings exist for "Default" — estimate timing from text length instead of real
+    // audio, and leave the destination silent. speechSynthesis can't be captured into the
+    // recording (a real browser limitation), so we optionally speak each line live, purely
+    // so the person previewing can *hear* something while it renders — the saved video
+    // file itself will have no voice track for this narrator.
+    lineTimings = lines.map(function(line){
+      var start = t;
+      t += estimateSpeechDuration(line.hi);
+      var end = t;
+      t += LINE_GAP;
+      return {role:line.role, hi:line.hi, en:line.en, start:start, end:end};
+    });
+  }
   var audioEnd = t;
   var totalDuration = audioEnd + OUTRO_LEN;
 
@@ -1530,18 +1611,27 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
   rec.start();
   var startTime = actx.currentTime + 0.12;
-  var when = LEAD_IN;
-  lines.forEach(function(line){
-    line.ids.forEach(function(id, idx){
-      if(idx>0) when += GAP;
-      var src = actx.createBufferSource();
-      src.buffer = buffers[id];
-      src.connect(dest);
-      src.start(startTime + when);
-      when += buffers[id].duration;
+
+  if(!isDefault){
+    var when = LEAD_IN;
+    lines.forEach(function(line){
+      line.ids.forEach(function(id, idx){
+        if(idx>0) when += GAP;
+        var src = actx.createBufferSource();
+        src.buffer = buffers[id];
+        src.connect(dest);
+        src.start(startTime + when);
+        when += buffers[id].duration;
+      });
+      when += LINE_GAP;
     });
-    when += LINE_GAP;
-  });
+  } else {
+    // Best-effort live narration for preview only (not part of the recorded file) —
+    // scheduled approximately against the same timeline the captions use.
+    lineTimings.forEach(function(lt){
+      setTimeout(function(){ speakLineTTS(lt.hi); }, lt.start*1000);
+    });
+  }
 
   var lastTs = null;
   function frame(ts){
@@ -1623,25 +1713,31 @@ function renderNarrateSelectors(){
   if(!storyState.narrator) storyState.narrator = activeNarrator;
   var th = THEMES[storyState.theme];
 
+  function biChip(hi, en, pressed, dataAttrs){
+    var attrs = Object.keys(dataAttrs).map(function(k){ return 'data-'+k+'="'+dataAttrs[k]+'"'; }).join(' ');
+    return '<button class="chip" '+attrs+' aria-pressed="'+(pressed?'true':'false')+'">'+
+      '<span class="chip-hi">'+hi+'</span><span class="chip-en">'+en+'</span></button>';
+  }
+
   document.getElementById('n_themeChips').innerHTML = Object.keys(THEMES).map(function(k){
-    return chipBtn(THEMES[k].label, k===storyState.theme, {theme:k});
+    return biChip(THEMES[k].label, THEMES[k].labelHi, k===storyState.theme, {theme:k});
   }).join('');
   document.getElementById('n_heroChips').innerHTML = th.heroes.map(function(h,i){
-    return chipBtn(h.emoji+' '+h.en, i===storyState.heroIdx, {hero:i});
+    return biChip(h.emoji+' '+h.hi, h.en, i===storyState.heroIdx, {hero:i});
   }).join('');
   document.getElementById('n_placeChips').innerHTML = PLACES.map(function(p,i){
-    return chipBtn(p.emoji+' '+p.en, i===storyState.placeIdx, {place:i});
+    return biChip(p.emoji+' '+p.hi, p.en, i===storyState.placeIdx, {place:i});
   }).join('');
   document.getElementById('n_problemChips').innerHTML = PROBLEMS.map(function(p,i){
-    return chipBtn(p.emoji+' '+p.en, i===storyState.problemIdx, {problem:i});
+    return biChip(p.emoji+' '+(PROBLEM_STORY[p.en]?PROBLEM_STORY[p.en].hi:p.hi), p.en, i===storyState.problemIdx, {problem:i});
   }).join('');
   document.getElementById('n_helperChips').innerHTML = th.helpers.map(function(h,i){
-    return chipBtn(h.emoji+' '+h.en, i===storyState.helperIdx, {helper:i});
+    return biChip(h.emoji+' '+h.hi, h.en, i===storyState.helperIdx, {helper:i});
   }).join('');
   document.getElementById('n_endingChips').innerHTML = ENDINGS.map(function(e,i){
-    return chipBtn(e.emoji+' '+e.en, i===storyState.endingIdx, {ending:i});
+    return biChip(e.hi, e.en, i===storyState.endingIdx, {ending:i});
   }).join('');
-  document.getElementById('n_narratorChips').innerHTML = NARRATORS.map(function(n){
+  document.getElementById('n_narratorChips').innerHTML = allNarratorChoices().map(function(n){
     return chipBtn(n.label, n.id===storyState.narrator, {narrator:n.id});
   }).join('');
   document.querySelectorAll('#n_lenChips .chip').forEach(function(b){
@@ -1702,6 +1798,7 @@ function buildCurrentLines(){
 
 document.getElementById('n_playBtn').onclick = function(){
   var built = buildCurrentLines();
+  var isDefault = (storyState.narrator === DEFAULT_NARRATOR_ID);
   var missing = missingIds(built.lines, storyState.narrator);
   var missEl = document.getElementById('n_missing');
   var outEl = document.getElementById('n_storyOut');
@@ -1713,8 +1810,9 @@ document.getElementById('n_playBtn').onclick = function(){
   missEl.textContent = '';
   outEl.style.display='';
   outEl.innerHTML = '<div class="en" style="margin-bottom:6px">Playing in: <b>'+narratorLabel(storyState.narrator)+'</b> · '+storyState.length+'</div>'+
-    built.lines.map(function(l){ return '<div class="hi">'+l.hi+'</div>'; }).join('');
-  playSequence(flatIds(built.lines), storyState.narrator);
+    built.lines.map(function(l){ return '<div class="hi">'+l.hi+'</div><div class="en" style="margin-bottom:8px">'+l.en+'</div>'; }).join('');
+  if(isDefault) playSequenceTTS(built.lines);
+  else playSequence(flatIds(built.lines), storyState.narrator);
 };
 
 document.getElementById('n_filmBtn').onclick = function(){
@@ -1748,6 +1846,22 @@ document.getElementById('micTestBtn').onclick = runMicSelfTest;
     el.style.color = 'var(--coral)';
   }
 })();
+(function initThemeToggle(){
+  var btn = document.getElementById('themeToggleBtn');
+  function refreshLabel(){
+    var isDark = document.documentElement.getAttribute('data-theme')==='dark';
+    btn.textContent = isDark ? '☀️ Light' : '🌙 Dark';
+  }
+  btn.onclick = function(){
+    var isDark = document.documentElement.getAttribute('data-theme')==='dark';
+    if(isDark){ document.documentElement.removeAttribute('data-theme'); }
+    else { document.documentElement.setAttribute('data-theme','dark'); }
+    try{ localStorage.setItem('voiceStudioTheme', isDark ? 'light' : 'dark'); } catch(e){}
+    refreshLabel();
+  };
+  refreshLabel();
+})();
+
 if('serviceWorker' in navigator){
   window.addEventListener('load', function(){
     navigator.serviceWorker.register('sw.js').catch(function(e){ console.log('SW registration failed:', e); });
