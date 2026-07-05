@@ -1603,7 +1603,9 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     canvasStream = canvasEl.captureStream(30);
     videoTrack = canvasStream.getVideoTracks()[0];
   }
-  var combined = new MediaStream([videoTrack].concat(dest.stream.getAudioTracks()));
+  // Default narration never connects anything to `dest` (it's silent by design — see above),
+  // so skip including its audio track at all rather than carrying a permanently-inactive one.
+  var combined = new MediaStream(isDefault ? [videoTrack] : [videoTrack].concat(dest.stream.getAudioTracks()));
   var mime = pickSupportedMime();
   var rec = mime ? new MediaRecorder(combined, {mimeType:mime}) : new MediaRecorder(combined);
   var chunks = [];
@@ -1620,7 +1622,11 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   rec.onstop = function(){ finishNow(); };
   rec.onerror = function(e){ finishNow('MediaRecorder error event — '+((e&&e.error&&e.error.message)||'unknown')); };
 
-  rec.start();
+  // A timeslice makes the browser hand over data periodically (here, every second) instead
+  // of trying to deliver everything in one handoff when stop() is called. Without this, a
+  // single failed handoff at the very end means there is nothing at all to fall back on —
+  // which is exactly what produced the earlier "0 bytes captured" failure.
+  rec.start(1000);
   var startTime = actx.currentTime + 0.12;
   var wallStart = performance.now()/1000;
 
@@ -1712,7 +1718,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   var blob = await finished;
   genBtn.disabled = false;
   if(!blob || blob.size < 1000){
-    statusEl.textContent = 'The recording didn\u2019t capture properly on this browser (got '+(blob?blob.size:0)+' bytes). Try again, or try Chrome on Android — video capture support varies by browser.';
+    statusEl.textContent = 'The recording didn\u2019t capture properly on this browser (got '+(blob?blob.size:0)+' bytes across '+chunks.length+' segment(s)). Try again, or try Chrome on Android — video capture support varies by browser.';
     return;
   }
   statusEl.textContent = 'Done! ('+(mime||'default format')+')';
