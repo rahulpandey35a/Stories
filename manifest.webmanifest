@@ -1,0 +1,17 @@
+{
+  "name": "Story Maker Voice Studio",
+  "short_name": "Voice Studio",
+  "description": "Record family voices and turn Story Maker stories into narrated, animated videos — fully offline, no accounts, no data leaves the device.",
+  "lang": "en",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF9F0",
+  "theme_color": "#1F9E8F",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
