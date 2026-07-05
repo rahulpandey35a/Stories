@@ -1553,6 +1553,10 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
   var AC = window.AudioContext || window.webkitAudioContext;
   var actx = new AC();
+  // Some browsers create/keep an AudioContext "suspended" until real audio work is happening
+  // on it — for Default narration nothing is ever connected to it, so it can stay suspended
+  // forever, and actx.currentTime can freeze along with it. Resume explicitly as a safeguard.
+  if(actx.state === 'suspended'){ try{ await actx.resume(); }catch(e){} }
   var dest = actx.createMediaStreamDestination();
   var GAP = 0.18, LINE_GAP = 0.4, LEAD_IN = 1.5, OUTRO_LEN = 2.4;
   var buffers = {}, t = LEAD_IN, lineTimings;
@@ -1611,6 +1615,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
   rec.start();
   var startTime = actx.currentTime + 0.12;
+  var wallStart = performance.now()/1000;
 
   if(!isDefault){
     var when = LEAD_IN;
@@ -1640,7 +1645,9 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     lastTs = ts;
     // Compute elapsed/continuation OUTSIDE any drawing try/catch — a drawing bug must
     // never again be able to silently freeze the animation or strand the recording.
-    var elapsed = actx.currentTime - startTime;
+    // Default narration has no audio nodes running, so actx.currentTime isn't a reliable
+    // clock for it — use real wall-clock time instead, which always advances.
+    var elapsed = isDefault ? (performance.now()/1000 - wallStart) : (actx.currentTime - startTime);
 
     try{
       stepParticles(dt);
