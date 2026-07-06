@@ -1685,7 +1685,24 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
         drawOutroCard(meta, narrator, elapsed-audioEnd);
       } else {
         var active = lineTimings.find(function(l){ return elapsed>=l.start && elapsed<l.end; });
-        var phase = active ? active.role : (elapsed<lineTimings[0].start ? 'intro' : 'solved');
+        var phase;
+        if(active){
+          phase = active.role;
+        } else if(elapsed < lineTimings[0].start){
+          phase = 'intro';
+        } else {
+          // In the brief pause between two lines — hold the phase of whichever beat just
+          // finished, rather than defaulting forward. The old fallback here defaulted to
+          // 'solved' for ANY gap, which is exactly what made the helper (and confetti)
+          // flash in at every single beat transition throughout the whole video, not just
+          // at the real ending.
+          var justFinished = null;
+          for(var gi=0; gi<lineTimings.length; gi++){
+            if(lineTimings[gi].end <= elapsed) justFinished = lineTimings[gi];
+            else break;
+          }
+          phase = justFinished ? justFinished.role : 'intro';
+        }
         drawCharacters(meta.tk, elapsed, phase, meta);
         if(phase==='solved'){
           if(confetti.length===0) burstConfetti();
