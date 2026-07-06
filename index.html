@@ -168,7 +168,7 @@
       <div id="spriteCheckResult" class="note"></div>
     </div>
     <div style="margin-top:14px">
-      <canvas id="stage" width="540" height="960" style="width:100%; max-width:300px; display:block; margin:0 auto; border-radius:14px; background:#FFF9F0; border:1px solid var(--line)"></canvas>
+      <canvas id="stage" width="720" height="1280" style="width:100%; max-width:300px; display:block; margin:0 auto; border-radius:14px; background:#FFF9F0; border:1px solid var(--line)"></canvas>
     </div>
     <div class="progress-label" id="renderStatus" style="text-align:center; margin-top:8px"></div>
     <div id="videoResult" style="margin-top:12px"></div>
@@ -783,7 +783,29 @@ async function trimSilenceToWav(blob){
     var pad = Math.round(sr*0.05); // 50ms breathing room on each side
     startIdx = Math.max(0, startIdx-pad);
     endIdx = Math.min(n, endIdx+pad);
-    var trimmed = data.subarray(startIdx, endIdx);
+    var trimmed = Float32Array.from(data.subarray(startIdx, endIdx));
+
+    // Loudness normalization — different recording sessions (different days, distances from
+    // the phone, rooms) end up at different volumes. Without this, concatenated words visibly
+    // jump in loudness against each other, which is a big part of what makes stitched-together
+    // recordings sound rough. Scale every clip to the same target peak level.
+    var peak = 0;
+    for(var p=0;p<trimmed.length;p++){ var av=Math.abs(trimmed[p]); if(av>peak) peak=av; }
+    if(peak > 0.0005){
+      var targetPeak = 0.82;
+      var gain = Math.min(targetPeak/peak, 8); // cap gain so near-silent noise doesn't get blasted up
+      for(var q=0;q<trimmed.length;q++){ trimmed[q] = Math.max(-1, Math.min(1, trimmed[q]*gain)); }
+    }
+
+    // A very short (5ms) fade right at the two cut edges — the trim above finds where real
+    // speech starts/ends, but cutting right at that sample can leave an audible click/pop.
+    var edge = Math.min(Math.round(sr*0.005), Math.floor(trimmed.length/4));
+    for(var e=0;e<edge;e++){
+      var f = e/edge;
+      trimmed[e] *= f;
+      trimmed[trimmed.length-1-e] *= f;
+    }
+
     return encodeWavMono(trimmed, sr);
   } catch(e){
     console.log('Trim failed, keeping original recording:', e);
@@ -1171,7 +1193,12 @@ var THEME_VISUAL = {
 /* ---- canvas animation engine ---- */
 var stage = document.getElementById('stage');
 var sctx = stage.getContext('2d');
-var W = stage.width, H = stage.height;
+var W = 540, H = 960; // logical drawing size — every existing font size, position, and layout
+                       // constant in this file was tuned against this. The canvas element's
+                       // actual backing resolution can be higher for a crisper video; a single
+                       // scale transform (set once per frame, see frame()) maps logical
+                       // coordinates up to the real resolution without touching any of that
+                       // tuning.
 
 function loadDevFont(){
   if(document.fonts && document.fonts.load){
@@ -1213,18 +1240,33 @@ function burstConfetti(){
   }
 }
 
-function drawBackground(theme, elapsed){
-  var v = THEME_VISUAL[theme];
-  var g = sctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0, v.grad[0]); g.addColorStop(1, v.grad[1]);
-  sctx.fillStyle = g;
-  sctx.fillRect(0,0,W,H);
+function drawBackground(theme, elapsed, placeSprite){
+  if(placeSprite){
+    var canvasRatio = W/H, imgRatio = placeSprite.naturalWidth/placeSprite.naturalHeight;
+    var dw, dh;
+    if(imgRatio > canvasRatio){ dh = H; dw = H*imgRatio; } else { dw = W; dh = W/imgRatio; }
+    sctx.drawImage(placeSprite, (W-dw)/2, (H-dh)/2, dw, dh);
+    // a very soft theme-colored tint keeps the palette cohesive with the captions/UI
+    sctx.save();
+    sctx.globalAlpha = 0.08;
+    sctx.fillStyle = THEME_VISUAL[theme].accent;
+    sctx.fillRect(0,0,W,H);
+    sctx.restore();
+  } else {
+    var v = THEME_VISUAL[theme];
+    var g = sctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0, v.grad[0]); g.addColorStop(1, v.grad[1]);
+    sctx.fillStyle = g;
+    sctx.fillRect(0,0,W,H);
+  }
 }
 
 // Simple parallax scenery made from the story's own place emoji, at three depths,
 // each panning at a different speed — gives a real sense of a moving world
-// without needing any new art (stays inside the emoji-only design rule).
-function drawScenery(theme, place, elapsed){
+// without needing any new art. Only used as a fallback when there's no real
+// illustrated place image yet for this story's world.
+function drawScenery(theme, place, elapsed, placeSprite){
+  if(placeSprite) return; // real illustrated background already covers this
   sctx.save();
   sctx.textAlign='center'; sctx.textBaseline='middle';
   var layers = [
@@ -1554,6 +1596,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
   meta.heroSprite = await loadSprite(spriteIdFor('hero', meta.tk, meta.hero));
   meta.helperSprite = await loadSprite(spriteIdFor('helper', meta.tk, meta.helper));
+  meta.placeSprite = await loadSprite('place_'+PLACES.indexOf(meta.place));
 
   var AC = window.AudioContext || window.webkitAudioContext;
   var actx = new AC();
@@ -1639,11 +1682,24 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     lines.forEach(function(line){
       line.ids.forEach(function(id, idx){
         if(idx>0) when += GAP;
+        var buf = buffers[id];
+        var startAt = startTime + when;
+        // A short (15ms) fade in/out on every clip, via a gain envelope, instead of a hard
+        // start/stop — this is what actually smooths the seams between independently
+        // recorded words. Volume differences between recording sessions are handled
+        // separately, at trim time (see trimSilenceToWav's normalization step).
+        var fade = Math.min(0.015, buf.duration/4);
+        var g = actx.createGain();
+        g.gain.setValueAtTime(0, startAt);
+        g.gain.linearRampToValueAtTime(1, startAt + fade);
+        g.gain.setValueAtTime(1, startAt + Math.max(fade, buf.duration - fade));
+        g.gain.linearRampToValueAtTime(0, startAt + buf.duration);
         var src = actx.createBufferSource();
-        src.buffer = buffers[id];
-        src.connect(dest);
-        src.start(startTime + when);
-        when += buffers[id].duration;
+        src.buffer = buf;
+        src.connect(g);
+        g.connect(dest);
+        src.start(startAt);
+        when += buf.duration;
       });
       when += LINE_GAP;
     });
@@ -1667,11 +1723,12 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     var elapsed = isDefault ? (performance.now()/1000 - wallStart) : (actx.currentTime - startTime);
 
     try{
+      sctx.setTransform(stage.width/W, 0, 0, stage.height/H, 0, 0); // logical -> physical resolution
       stepParticles(dt);
       sctx.save();
       cameraTransform(elapsed);
-      drawBackground(meta.tk, elapsed);
-      drawScenery(meta.tk, meta.place, elapsed);
+      drawBackground(meta.tk, elapsed, meta.placeSprite);
+      drawScenery(meta.tk, meta.place, elapsed, meta.placeSprite);
       drawParticles();
 
       if(elapsed < LEAD_IN*0.9){
