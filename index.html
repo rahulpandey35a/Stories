@@ -91,6 +91,37 @@
   .chip small{font-weight:400; opacity:.85}
   .chip-hi{font-family:var(--dev); font-size:13px}
   .chip-en{font-size:10px; font-weight:500; opacity:.75}
+  .tabbar{display:flex; gap:8px; margin:14px 0 18px}
+  .tabbtn{flex:1; border:none; border-radius:12px; padding:12px 10px; font-size:14px; font-weight:700; cursor:pointer; background:var(--card); color:var(--ink-soft)}
+  .tabbtn.active{background:var(--teal); color:#fff}
+  .tabpanel{display:none}
+  .tabpanel.active{display:block}
+
+  @keyframes gentle-bounce{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+  @keyframes pop-in{ 0%{transform:scale(.88); opacity:0} 100%{transform:scale(1); opacity:1} }
+  @keyframes soft-pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(31,158,143,0.38)} 50%{box-shadow:0 0 0 12px rgba(31,158,143,0)} }
+  @keyframes float-drift{ 0%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(-14px) rotate(10deg)} 100%{transform:translateY(0) rotate(0deg)} }
+  @media (prefers-reduced-motion: reduce){
+    .story-hero-banner h2, .sparkle-deco, .selbox, #n_playBtn.ready, #n_filmBtn.ready{ animation:none !important; }
+  }
+
+  #tab-story{ background:radial-gradient(ellipse at top, #FFF4DC 0%, var(--paper) 65%); border-radius:20px; padding:16px 14px 24px; position:relative; overflow:hidden }
+  html[data-theme="dark"] #tab-story{ background:radial-gradient(ellipse at top, #2E2A44 0%, var(--paper) 65%) }
+  .story-hero-banner{ text-align:center; padding:4px 0 16px; position:relative; z-index:1 }
+  .story-hero-banner h2{ font-size:26px; margin:0 0 4px; animation:gentle-bounce 2.6s ease-in-out infinite; display:inline-block }
+  .story-hero-banner .sub2{ font-size:14px; color:var(--ink-soft); font-weight:600; margin:0 }
+  .sparkle-deco{ position:absolute; font-size:22px; opacity:.5; animation:float-drift 5.5s ease-in-out infinite; pointer-events:none; z-index:0 }
+
+  .selbox{ animation:pop-in .35s ease backwards }
+  .selbox .lbl{ font-size:12.5px }
+  .lbl-icon{ font-size:15px; margin-right:3px }
+  .chip{ padding:10px 15px; border-radius:16px; box-shadow:0 2px 0 rgba(0,0,0,0.05); transition:transform .12s ease }
+  .chip:active{ transform:scale(.93) }
+  .chip-hi{ font-size:14px }
+  .chip-en{ font-size:11px }
+
+  #n_playBtn, #n_filmBtn{ font-size:15px; padding:14px 18px; border-radius:18px }
+  #n_playBtn.ready, #n_filmBtn.ready{ animation:soft-pulse 1.9s ease-in-out infinite }
   .preview-line{padding:6px 10px; margin-bottom:4px; border-radius:8px; border-left:3px solid transparent}
   .preview-line.missing{background:rgba(232,100,60,0.08); border-left-color:var(--coral)}
   .preview-line .missing-tag{font-size:11px; color:var(--coral); font-weight:600; margin-top:2px}
@@ -99,11 +130,17 @@
 <body>
 <div class="wrap">
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
-    <h1>🎙️ Story Maker — Voice &amp; Film Studio</h1>
+    <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="sub">Two parts: record family voices below, then jump to Part 2 to build and narrate a story exactly like the original app — in whichever voice you choose.</div>
-  <h1 style="font-size:19px">🎙️ Part 1 — Record Voices</h1>
+  <div class="tabbar">
+    <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
+    <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
+  </div>
+
+  <div id="tab-setup" class="tabpanel">
+  <div class="sub">Record each family member's voice once per phrase — then it's ready to use in Story Time, forever.</div>
+  <h1 style="font-size:19px">🎙️ Record Voices</h1>
 
   <div class="panel" id="micCheckPanel">
     <h2>🎤 Microphone check</h2>
@@ -134,27 +171,39 @@
       <button class="btn-danger" id="clearBtn">Clear this person's recordings</button>
     </div>
     <div class="note" id="retrimStatus"></div>
-    <div class="note">Recordings auto-save to this device as you go (IndexedDB) — new ones are trimmed automatically; use the button above to trim recordings you made before this update. Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
+    <div class="note">Recordings auto-save to this device as you go — new ones are trimmed automatically; use the button above to trim recordings you made before this update. Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
     <div id="storyOut"></div>
   </div>
 
   <div id="categories"></div>
 
-  <hr style="border:none; border-top:2px dashed var(--line); margin:28px 0">
-  <h1 style="font-size:19px">📖 Part 2 — Narrate a Story</h1>
-  <div class="sub">Pick the story exactly like the original app — then choose whose voice tells it, and how long.</div>
+  <div class="panel">
+    <h2>🖼️ Character art</h2>
+    <button class="btn-secondary" id="spriteCheckBtn">Check which character art actually loads</button>
+    <div id="spriteCheckResult" class="note"></div>
+  </div>
+  </div>
+
+  <div id="tab-story" class="tabpanel">
+  <span class="sparkle-deco" style="top:6px; left:8%; animation-delay:0s">✨</span>
+  <span class="sparkle-deco" style="top:40px; right:10%; animation-delay:1.2s">🌟</span>
+  <span class="sparkle-deco" style="top:120px; left:4%; animation-delay:2.4s">⭐</span>
+  <div class="story-hero-banner">
+    <h2>🎬 Let's Make a Story!</h2>
+    <p class="sub2">Pick a world, a hero, and a helper — then watch it come alive! 🎉</p>
+  </div>
 
   <div class="panel" id="narratePanel">
     <div class="selectors">
-      <div class="selbox"><div class="lbl">World</div><div class="chips" id="n_themeChips"></div></div>
-      <div class="selbox"><div class="lbl">Who</div><div class="chips" id="n_heroChips"></div></div>
-      <div class="selbox"><div class="lbl">Where</div><div class="chips" id="n_placeChips"></div></div>
-      <div class="selbox"><div class="lbl">Problem</div><div class="chips" id="n_problemChips"></div></div>
-      <div class="selbox"><div class="lbl">Helper</div><div class="chips" id="n_helperChips"></div></div>
-      <div class="selbox"><div class="lbl">Trait</div><div class="chips" id="n_traitChips"></div></div>
-      <div class="selbox"><div class="lbl">Ending</div><div class="chips" id="n_endingChips"></div></div>
-      <div class="selbox"><div class="lbl">Voice</div><div class="chips" id="n_narratorChips"></div></div>
-      <div class="selbox"><div class="lbl">Length</div><div class="chips" id="n_lenChips">
+      <div class="selbox" style="animation-delay:.02s"><div class="lbl"><span class="lbl-icon">🌍</span>World</div><div class="chips" id="n_themeChips"></div></div>
+      <div class="selbox" style="animation-delay:.06s"><div class="lbl"><span class="lbl-icon">🧑</span>Who</div><div class="chips" id="n_heroChips"></div></div>
+      <div class="selbox" style="animation-delay:.10s"><div class="lbl"><span class="lbl-icon">📍</span>Where</div><div class="chips" id="n_placeChips"></div></div>
+      <div class="selbox" style="animation-delay:.14s"><div class="lbl"><span class="lbl-icon">❗</span>Problem</div><div class="chips" id="n_problemChips"></div></div>
+      <div class="selbox" style="animation-delay:.18s"><div class="lbl"><span class="lbl-icon">🤝</span>Helper</div><div class="chips" id="n_helperChips"></div></div>
+      <div class="selbox" style="animation-delay:.22s"><div class="lbl"><span class="lbl-icon">✨</span>Trait</div><div class="chips" id="n_traitChips"></div></div>
+      <div class="selbox" style="animation-delay:.26s"><div class="lbl"><span class="lbl-icon">🎊</span>Ending</div><div class="chips" id="n_endingChips"></div></div>
+      <div class="selbox" style="animation-delay:.30s"><div class="lbl"><span class="lbl-icon">🎙️</span>Voice</div><div class="chips" id="n_narratorChips"></div></div>
+      <div class="selbox" style="animation-delay:.34s"><div class="lbl"><span class="lbl-icon">⏱️</span>Length</div><div class="chips" id="n_lenChips">
         <button class="chip" data-len="short"><span class="chip-hi">छोटी</span><span class="chip-en">Short</span></button>
         <button class="chip" data-len="medium"><span class="chip-hi">मध्यम</span><span class="chip-en">Medium</span></button>
         <button class="chip" data-len="long"><span class="chip-hi">लंबी</span><span class="chip-en">Long</span></button>
@@ -169,15 +218,12 @@
     </div>
     <div id="n_missing" class="missing"></div>
     <div id="n_storyOut" class="story-out" style="display:none"></div>
-    <div style="margin-top:10px">
-      <button class="btn-secondary" id="spriteCheckBtn">🖼️ Check which character art actually loads</button>
-      <div id="spriteCheckResult" class="note"></div>
-    </div>
     <div style="margin-top:14px">
       <canvas id="stage" width="720" height="1280" style="width:100%; max-width:300px; display:block; margin:0 auto; border-radius:14px; background:#FFF9F0; border:1px solid var(--line)"></canvas>
     </div>
     <div class="progress-label" id="renderStatus" style="text-align:center; margin-top:8px"></div>
     <div id="videoResult" style="margin-top:12px"></div>
+  </div>
   </div>
 </div>
 
@@ -1408,18 +1454,21 @@ function spriteIdFor(kind, tk, item){
   var idx = (kind==='hero') ? theme.heroes.indexOf(item) : theme.helpers.indexOf(item);
   return kind+'_'+tk+'_'+idx;
 }
-// draws an image centered at the current origin, scaled to a fixed display height, preserving aspect ratio
-function drawSpriteCentered(img, dispH){
+// draws an image centered at the current origin, scaled to a fixed display height, preserving
+// aspect ratio — but never exceeding maxW, so a wide image (e.g. wings, a wide prop) can't
+// grow past its allotted footprint and collide with the other character.
+function drawSpriteCentered(img, dispH, maxW){
   var ratio = img.naturalWidth / img.naturalHeight;
-  var w = dispH*ratio;
-  sctx.drawImage(img, -w/2, -dispH/2, w, dispH);
+  var w = dispH*ratio, h = dispH;
+  if(maxW && w > maxW){ w = maxW; h = maxW/ratio; }
+  sctx.drawImage(img, -w/2, -h/2, w, h);
 }
 
 function drawCharacters(theme, elapsed, phase, pick){
   var v = THEME_VISUAL[theme];
   var bob = Math.sin(elapsed*2)*16;
   var sway = Math.sin(elapsed*1.3)*10;
-  var heroX = W*0.38+sway, heroY = H*0.42+bob;
+  var heroX = W*0.28+sway, heroY = H*0.42+bob;
 
   // 'low' (darkest moment): dim the whole scene first, hero sinks slightly
   if(phase==='low'){
@@ -1451,7 +1500,7 @@ function drawCharacters(theme, elapsed, phase, pick){
     sctx.rotate(Math.sin(elapsed*1.3)*0.06);
     sctx.scale(heroScale, heroScale);
     if(pick.heroSprite){
-      drawSpriteCentered(pick.heroSprite, 260);
+      drawSpriteCentered(pick.heroSprite, 260, 150);
     } else {
       sctx.font = '110px sans-serif';
       sctx.textAlign='center'; sctx.textBaseline='middle';
@@ -1483,11 +1532,11 @@ function drawCharacters(theme, elapsed, phase, pick){
 
   if(phase==='help' || phase==='plan' || phase==='turn' || phase==='solved' || phase==='reflect' || phase==='moral'){
     var helperBob = Math.sin(elapsed*2.4+1.1)*14;
-    var helperX = (phase==='plan') ? W*0.52 : W*0.66;
+    var helperX = (phase==='plan') ? W*0.56 : W*0.74;
     sctx.save();
     sctx.translate(helperX, H*0.42+helperBob);
     if(pick.helperSprite){
-      drawSpriteCentered(pick.helperSprite, 220);
+      drawSpriteCentered(pick.helperSprite, 220, 130);
     } else {
       sctx.textAlign='center'; sctx.textBaseline='middle';
       sctx.font='90px sans-serif';
@@ -1531,7 +1580,7 @@ function drawTitleCard(pick, narrator, t){
   sctx.fillStyle = THEME_VISUAL[pick.tk].accent;
   sctx.textAlign='center'; sctx.textBaseline='middle';
   if(pick.heroSprite){
-    sctx.save(); sctx.translate(W/2, H*0.36); drawSpriteCentered(pick.heroSprite, 220); sctx.restore();
+    sctx.save(); sctx.translate(W/2, H*0.36); drawSpriteCentered(pick.heroSprite, 220, 170); sctx.restore();
   } else {
     sctx.font='90px sans-serif';
     sctx.fillText(pick.hero.emoji, W/2, H*0.38);
@@ -1775,12 +1824,10 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
           if(confetti.length===0) burstConfetti();
           stepConfetti(dt); drawConfetti();
         }
-        sctx.restore(); // caption panel is drawn in fixed screen space, not affected by camera drift
-        if(active){
-          var fadeIn = clamp((elapsed-active.start)/0.25, 0, 1);
-          var fadeOut = clamp((active.end-elapsed)/0.25, 0, 1);
-          drawCaptionPanel(active.hi, active.en, Math.min(fadeIn,fadeOut));
-        }
+        sctx.restore();
+        // Captions intentionally removed from the video — the illustration and narration
+        // carry the story; overlaid text was competing with the artwork rather than
+        // supporting it. (The bilingual text still shows in the live preview in Part 2.)
       }
       statusEl.textContent = 'Rendering\u2026 '+elapsed.toFixed(1)+'s / '+totalDuration.toFixed(1)+'s';
     } catch(drawErr){
@@ -1792,13 +1839,22 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
     if(elapsed < totalDuration){ requestAnimationFrame(frame); }
     else {
-      try{ rec.stop(); } catch(stopErr){ finishNow('rec.stop() threw — '+stopErr.message); }
-      // Safety net: if the browser never fires onstop/onerror for some reason, don't hang
-      // forever — finalize with whatever was actually captured after a few seconds.
+      // Force whatever audio/video MediaRecorder is currently holding onto to flush into a
+      // chunk right now, before we tell it to stop — otherwise the last fraction of a
+      // second (often the very last word of the story) can be lost inside the recorder's
+      // own internal buffering, which is what "video gets cut off at the end" turned out
+      // to be. A short pause after requesting it gives that final chunk time to actually
+      // arrive before stop() finalizes things.
+      try{ if(rec.state==='recording' && typeof rec.requestData === 'function') rec.requestData(); } catch(reqErr){}
       setTimeout(function(){
-        if(!finishedAlready) statusEl.textContent = 'Finishing up\u2026 (taking longer than expected)';
-        setTimeout(function(){ finishNow('watchdog timeout — browser never signalled completion'); }, 4000);
-      }, 3000);
+        try{ rec.stop(); } catch(stopErr){ finishNow('rec.stop() threw — '+stopErr.message); }
+        // Safety net: if the browser never fires onstop/onerror for some reason, don't hang
+        // forever — finalize with whatever was actually captured after a few seconds.
+        setTimeout(function(){
+          if(!finishedAlready) statusEl.textContent = 'Finishing up\u2026 (taking longer than expected)';
+          setTimeout(function(){ finishNow('watchdog timeout — browser never signalled completion'); }, 4000);
+        }, 3000);
+      }, 200);
     }
   }
   requestAnimationFrame(frame);
@@ -1918,13 +1974,15 @@ function renderLivePreview(){
     return '<div class="preview-line'+(missingHere.length?' missing':'')+'">'+
       '<div class="hi">'+line.hi+'</div>'+
       '<div class="en">'+line.en+'</div>'+
-      (missingHere.length ? '<div class="missing-tag">⚠ not recorded yet: '+labels.join(', ')+'</div>' : '')+
+      (missingHere.length ? '<div class="missing-tag">🎤 still needs: '+labels.join(', ')+'</div>' : '')+
     '</div>';
   }).join('');
   summaryEl.innerHTML = totalMissing===0
-    ? '✅ Everything needed is recorded in '+narratorLabel(nar)+'\u2019s voice — ready to play or film.'
-    : '⚠ '+totalMissing+' piece(s) below still need recording from '+narratorLabel(nar)+' for this exact combination.';
+    ? '🎉 This story is ready in '+narratorLabel(nar)+'\u2019s voice!'
+    : '🎤 A few words below still need recording from '+narratorLabel(nar)+' — or tap Surprise Me for a story that\u2019s ready right now.';
   summaryEl.style.color = totalMissing===0 ? 'var(--teal)' : 'var(--coral)';
+  document.getElementById('n_playBtn').classList.toggle('ready', totalMissing===0);
+  document.getElementById('n_filmBtn').classList.toggle('ready', totalMissing===0);
 }
 
 function currentSelection(){
@@ -1965,7 +2023,7 @@ document.getElementById('n_playBtn').onclick = function(){
   var missEl = document.getElementById('n_missing');
   var outEl = document.getElementById('n_storyOut');
   if(missing.length){
-    missEl.textContent = narratorLabel(storyState.narrator)+' is missing '+missing.length+' recording(s) for this exact story — record those, or try Surprise Me for a combination that\u2019s ready.';
+    missEl.textContent = narratorLabel(storyState.narrator)+' still needs a few more recordings for this exact story — check the preview above, or tap Surprise Me for one that\u2019s ready right now.';
     outEl.style.display='none';
     return;
   }
@@ -1982,7 +2040,7 @@ document.getElementById('n_filmBtn').onclick = function(){
   var missing = missingIds(built.lines, storyState.narrator);
   var missEl = document.getElementById('n_missing');
   if(missing.length){
-    missEl.textContent = narratorLabel(storyState.narrator)+' is missing '+missing.length+' recording(s) for this exact story — record those, or try Surprise Me for a combination that\u2019s ready.';
+    missEl.textContent = narratorLabel(storyState.narrator)+' still needs a few more recordings for this exact story — check the preview above, or tap Surprise Me for one that\u2019s ready right now.';
     return;
   }
   missEl.textContent = '';
@@ -2061,6 +2119,21 @@ document.getElementById('spriteCheckBtn').onclick = async function(){
   el.innerHTML = '<b>'+found.length+' image(s) load correctly</b> out of '+allIds.length+' possible characters ('+missing+' have no art yet — that\u2019s expected until you generate more).<br>'+
     (found.length ? 'Working: '+found.join(', ') : '<span style="color:var(--coral)">None loaded at all — check that the .png files were actually pushed to your repo, sitting right next to index.html (not inside a subfolder), and that filenames match exactly (they\u2019re case-sensitive on GitHub Pages).</span>');
 };
+
+/* ---------- tabs — Story Time is the default landing view, Grown-Up Setup is one tap away ---------- */
+(function initTabs(){
+  var btns = [document.getElementById('tabBtnStory'), document.getElementById('tabBtnSetup')];
+  var panels = { story: document.getElementById('tab-story'), setup: document.getElementById('tab-setup') };
+  function activate(tab){
+    btns.forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-tab')===tab); });
+    Object.keys(panels).forEach(function(k){ panels[k].classList.toggle('active', k===tab); });
+    try{ localStorage.setItem('voiceStudioTab', tab); } catch(e){}
+  }
+  btns.forEach(function(b){ b.onclick = function(){ activate(b.getAttribute('data-tab')); }; });
+  var saved = null;
+  try{ saved = localStorage.getItem('voiceStudioTab'); } catch(e){}
+  activate(saved==='setup' ? 'setup' : 'story'); // always default a fresh visitor to Story Time
+})();
 </script>
 </body>
 </html>
