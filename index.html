@@ -133,7 +133,7 @@
     <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v19 · Jul 7, 2026</div>
+  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v20 · Jul 7, 2026</div>
   <div class="tabbar">
     <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
     <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
@@ -820,18 +820,35 @@ async function trimSilenceToWav(blob){
     var data = buf.getChannelData(0);
     var sr = buf.sampleRate;
     var win = Math.max(1, Math.round(sr*0.01)); // 10ms windows
-    var threshold = 0.018;
     var n = data.length;
     function rms(start){
       var end = Math.min(start+win, n), sum=0;
       for(var i=start;i<end;i++) sum += data[i]*data[i];
       return Math.sqrt(sum/(end-start));
     }
+    var rmsVals = [];
+    for(var w=0; w*win<n; w++){ rmsVals.push(rms(w*win)); }
+
+    // Adaptive noise floor — calibrated to how quiet or noisy THIS specific recording
+    // actually is (a quiet room at night vs. a slightly noisier daytime room), instead of
+    // one fixed threshold for every clip. That fixed-threshold approach is exactly why some
+    // clips still had leftover dead air while others risked clipping into the word itself.
+    var sorted = rmsVals.slice().sort(function(a,b){ return a-b; });
+    var noiseFloor = sorted[Math.floor(sorted.length*0.2)] || 0;
+    var threshold = Math.max(0.008, noiseFloor*3.2);
+
     var startIdx = 0, endIdx = n, foundStart=false, foundEnd=false;
-    for(var i=0;i<n;i+=win){ if(rms(i)>threshold){ startIdx=i; foundStart=true; break; } }
-    for(var j=Math.floor((n-win)/win)*win; j>=0; j-=win){ if(rms(j)>threshold){ endIdx=Math.min(n,j+win); foundEnd=true; break; } }
+    // Require two consecutive windows above threshold before calling it "speech" — a single
+    // click or pop right as the microphone activates (common at the very start of a
+    // recording) shouldn't get mistaken for the word starting.
+    for(var i=0;i<rmsVals.length-1;i++){
+      if(rmsVals[i]>threshold && rmsVals[i+1]>threshold){ startIdx=i*win; foundStart=true; break; }
+    }
+    for(var j=rmsVals.length-1;j>0;j--){
+      if(rmsVals[j]>threshold && rmsVals[j-1]>threshold){ endIdx=Math.min(n,(j+1)*win); foundEnd=true; break; }
+    }
     if(!foundStart || !foundEnd || endIdx<=startIdx){ startIdx=0; endIdx=n; } // don't destroy audio if detection is unsure
-    var pad = Math.round(sr*0.05); // 50ms breathing room on each side
+    var pad = Math.round(sr*0.028); // tightened from 50ms — enough breathing room without leaving audible dead air
     startIdx = Math.max(0, startIdx-pad);
     endIdx = Math.min(n, endIdx+pad);
     var trimmed = Float32Array.from(data.subarray(startIdx, endIdx));
@@ -1654,7 +1671,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   // forever, and actx.currentTime can freeze along with it. Resume explicitly as a safeguard.
   if(actx.state === 'suspended'){ try{ await actx.resume(); }catch(e){} }
   var dest = actx.createMediaStreamDestination();
-  var GAP = 0.18, LINE_GAP = 0.4, LEAD_IN = 1.5, OUTRO_LEN = 2.4;
+  var GAP = 0.11, LINE_GAP = 0.4, LEAD_IN = 1.5, OUTRO_LEN = 3.2;
   var buffers = {}, t = LEAD_IN, lineTimings;
 
   if(!isDefault){
@@ -1722,7 +1739,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   // of trying to deliver everything in one handoff when stop() is called. Without this, a
   // single failed handoff at the very end means there is nothing at all to fall back on —
   // which is exactly what produced the earlier "0 bytes captured" failure.
-  rec.start(1000);
+  rec.start(500);
   var startTime = actx.currentTime + 0.12;
   var wallStart = performance.now()/1000;
 
@@ -1733,11 +1750,11 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
         if(idx>0) when += GAP;
         var buf = buffers[id];
         var startAt = startTime + when;
-        // A short (15ms) fade in/out on every clip, via a gain envelope, instead of a hard
+        // A short (30ms) fade in/out on every clip, via a gain envelope, instead of a hard
         // start/stop — this is what actually smooths the seams between independently
         // recorded words. Volume differences between recording sessions are handled
         // separately, at trim time (see trimSilenceToWav's normalization step).
-        var fade = Math.min(0.015, buf.duration/4);
+        var fade = Math.min(0.03, buf.duration/4);
         var g = actx.createGain();
         g.gain.setValueAtTime(0, startAt);
         g.gain.linearRampToValueAtTime(1, startAt + fade);
@@ -1752,6 +1769,18 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
       });
       when += LINE_GAP;
     });
+    // A short silent buffer right after the last real word — keeps the audio graph actively
+    // producing samples for a bit longer instead of going instantly quiet the moment the
+    // story ends. Several browsers' encoders handle a genuinely "live" stream tailing off
+    // more reliably than one that goes silent all at once, which is part of what was
+    // causing the last word to sometimes get cut short in the exported file.
+    try{
+      var silentBuf = actx.createBuffer(1, Math.round(actx.sampleRate*0.4), actx.sampleRate);
+      var silentSrc = actx.createBufferSource();
+      silentSrc.buffer = silentBuf;
+      silentSrc.connect(dest);
+      silentSrc.start(startTime + when);
+    } catch(silentErr){}
   } else {
     // Best-effort live narration for preview only (not part of the recorded file) —
     // scheduled approximately against the same timeline the captions use.
@@ -1837,14 +1866,17 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
       // arrive before stop() finalizes things.
       try{ if(rec.state==='recording' && typeof rec.requestData === 'function') rec.requestData(); } catch(reqErr){}
       setTimeout(function(){
-        try{ rec.stop(); } catch(stopErr){ finishNow('rec.stop() threw — '+stopErr.message); }
-        // Safety net: if the browser never fires onstop/onerror for some reason, don't hang
-        // forever — finalize with whatever was actually captured after a few seconds.
+        try{ if(rec.state==='recording' && typeof rec.requestData === 'function') rec.requestData(); } catch(reqErr2){}
         setTimeout(function(){
-          if(!finishedAlready) statusEl.textContent = 'Finishing up\u2026 (taking longer than expected)';
-          setTimeout(function(){ finishNow('watchdog timeout — browser never signalled completion'); }, 4000);
-        }, 3000);
-      }, 200);
+          try{ rec.stop(); } catch(stopErr){ finishNow('rec.stop() threw — '+stopErr.message); }
+          // Safety net: if the browser never fires onstop/onerror for some reason, don't hang
+          // forever — finalize with whatever was actually captured after a few seconds.
+          setTimeout(function(){
+            if(!finishedAlready) statusEl.textContent = 'Finishing up\u2026 (taking longer than expected)';
+            setTimeout(function(){ finishNow('watchdog timeout — browser never signalled completion'); }, 4000);
+          }, 3000);
+        }, 350);
+      }, 350);
     }
   }
   requestAnimationFrame(frame);
