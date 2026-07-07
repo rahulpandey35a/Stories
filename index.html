@@ -1577,36 +1577,25 @@ function drawCharacters(theme, elapsed, phase, pick){
 function drawTitleCard(pick, narrator, t){
   sctx.save();
   sctx.globalAlpha = clamp(1 - Math.abs(t-0.7)/0.7, 0, 1);
-  sctx.fillStyle = THEME_VISUAL[pick.tk].accent;
   sctx.textAlign='center'; sctx.textBaseline='middle';
   if(pick.heroSprite){
-    sctx.save(); sctx.translate(W/2, H*0.36); drawSpriteCentered(pick.heroSprite, 220, 170); sctx.restore();
+    sctx.save(); sctx.translate(W/2, H*0.45); drawSpriteCentered(pick.heroSprite, 280, 210); sctx.restore();
   } else {
-    sctx.font='90px sans-serif';
-    sctx.fillText(pick.hero.emoji, W/2, H*0.38);
+    sctx.fillStyle = THEME_VISUAL[pick.tk].accent;
+    sctx.font='120px sans-serif';
+    sctx.fillText(pick.hero.emoji, W/2, H*0.45);
   }
-  sctx.font = '700 34px "Noto Sans Devanagari", sans-serif';
-  sctx.fillText(pick.hero.hi+' की कहानी', W/2, H*0.55);
-  sctx.font = '400 18px system-ui, sans-serif';
-  sctx.fillStyle='#6B6D94';
-  sctx.fillText('A story in '+narratorLabel(narrator)+'\u2019s voice', W/2, H*0.60);
   sctx.restore();
 }
 
 function drawOutroCard(pick, narrator, t){
   sctx.save();
   sctx.globalAlpha = clamp(t/0.6, 0, 1);
-  sctx.fillStyle = 'rgba(255,255,255,0.85)';
+  sctx.fillStyle = 'rgba(255,255,255,0.7)';
   sctx.fillRect(0,0,W,H);
-  sctx.fillStyle = THEME_VISUAL[pick.tk].accent;
   sctx.textAlign='center'; sctx.textBaseline='middle';
-  sctx.font='80px sans-serif';
-  sctx.fillText('🌟', W/2, H*0.4);
-  sctx.font = '700 40px "Noto Sans Devanagari", sans-serif';
-  sctx.fillText('समाप्त', W/2, H*0.5);
-  sctx.font = '400 20px system-ui, sans-serif';
-  sctx.fillStyle = '#6B6D94';
-  sctx.fillText('The End · told by '+narratorLabel(narrator), W/2, H*0.57);
+  sctx.font='110px sans-serif';
+  sctx.fillText('🌟', W/2, H*0.46);
   sctx.restore();
 }
 
