@@ -133,7 +133,7 @@
     <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v21 · Jul 7, 2026</div>
+  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v22 · Jul 7, 2026</div>
   <div class="tabbar">
     <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
     <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
@@ -168,11 +168,14 @@
     <div class="top-actions" style="margin-top:12px">
       <button class="btn-primary" id="assembleBtn">🔊 Assemble &amp; play a short story</button>
       <button class="btn-secondary" id="zipBtn">⬇️ Download all recordings (.zip, all family members)</button>
+      <label class="btn-secondary" for="restoreZipInput" style="cursor:pointer; display:inline-block">⬆️ Restore recordings from a backup .zip</label>
+      <input type="file" id="restoreZipInput" accept=".zip" style="display:none">
       <button class="btn-secondary" id="retrimBtn">✂️ Trim silence on this person's existing recordings</button>
       <button class="btn-danger" id="clearBtn">Clear this person's recordings</button>
     </div>
+    <div class="note" id="restoreStatus"></div>
     <div class="note" id="retrimStatus"></div>
-    <div class="note">Recordings auto-save to this device as you go — new ones are trimmed automatically; use the button above to trim recordings you made before this update. Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
+    <div class="note">Recordings auto-save to this device as you go — new ones are trimmed automatically; use the button above to trim recordings you made before this update. <b>On iPhone especially</b>: Safari can silently clear saved recordings after a period of inactivity, even for Home Screen apps — download a backup zip regularly, and use Restore above if recordings ever go missing. Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
     <div id="storyOut"></div>
   </div>
 
@@ -1249,6 +1252,53 @@ document.getElementById('zipBtn').onclick = async function(){
   a.href = URL.createObjectURL(content);
   a.download = 'story-maker-voice-clips.zip';
   a.click();
+};
+
+document.getElementById('restoreZipInput').onchange = async function(e){
+  var file = e.target.files[0];
+  e.target.value = ''; // allow re-selecting the same file later without a no-op
+  if(!file) return;
+  var statusEl = document.getElementById('restoreStatus');
+  if(typeof JSZip === 'undefined'){ statusEl.textContent = 'JSZip did not load — check your internet connection and try again.'; return; }
+  statusEl.textContent = 'Reading backup\u2026';
+  try{
+    var zip = await JSZip.loadAsync(file);
+    var entries = Object.keys(zip.files).filter(function(name){ return !zip.files[name].dir; });
+    if(entries.length===0){ statusEl.textContent = 'That zip doesn\u2019t look like a Story Maker backup — no recordings found inside.'; return; }
+    var restored = 0, skipped = 0, addedNarrators = [];
+    for(var i=0;i<entries.length;i++){
+      var path = entries[i]; // e.g. "father/trait_0.wav"
+      var parts = path.split('/');
+      if(parts.length < 2){ skipped++; continue; }
+      var narratorId = parts[0];
+      var filename = parts[parts.length-1];
+      var dotIdx = filename.lastIndexOf('.');
+      if(dotIdx<=0){ skipped++; continue; }
+      var itemId = filename.slice(0, dotIdx);
+      var ext = filename.slice(dotIdx+1).toLowerCase();
+      var mime = ext==='wav' ? 'audio/wav' : (ext==='webm' ? 'audio/webm' : null);
+      if(!mime){ skipped++; continue; }
+      var blobData = await zip.files[path].async('blob');
+      var blob = new Blob([blobData], {type: mime});
+      var key = narratorId+'|'+itemId;
+      clips[key] = {blob:blob, url:URL.createObjectURL(blob)};
+      try{ await dbPut(key, blob); } catch(dbErr){}
+      if(!NARRATORS.some(function(n){ return n.id===narratorId; })){
+        NARRATORS.push({id:narratorId, label:narratorId});
+        addedNarrators.push(narratorId);
+      }
+      restored++;
+      statusEl.textContent = 'Restoring\u2026 '+restored+' / '+entries.length;
+    }
+    saveNarratorList();
+    populateNarratorSelect();
+    updateProgress();
+    buildCategoriesUI();
+    statusEl.textContent = '✅ Restored '+restored+' recording(s) from backup'+(skipped?' ('+skipped+' file(s) in the zip didn\u2019t look like recordings and were skipped)':'')+'.'+
+      (addedNarrators.length ? ' Added back: '+addedNarrators.join(', ')+' (renamed automatically from the folder name — you can rename via Add/Remove person if needed).' : '');
+  } catch(err){
+    statusEl.textContent = 'Couldn\u2019t read that file as a backup zip: '+err.message;
+  }
 };
 
 /* =====================================================================
