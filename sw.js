@@ -1,7 +1,7 @@
 /* Voice Studio service worker — network-first for the app shell (so updates always show up
    when online), cache-first for images/icons (which rarely change and benefit from speed +
    true offline support). */
-const CACHE = 'voice-studio-v24';
+const CACHE = 'voice-studio-v25';
 const ASSETS = [
   './',
   './index.html',

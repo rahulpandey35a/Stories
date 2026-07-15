@@ -135,7 +135,7 @@
     <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v24 · Jul 7, 2026</div>
+  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v25 · Jul 7, 2026</div>
   <div class="tabbar">
     <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
     <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
@@ -1562,8 +1562,8 @@ function drawScenery(theme, place, elapsed, placeSprite){
 // guarantees the frame is visibly alive every single moment of the video,
 // independent of whatever the characters themselves are doing.
 var CAMERA_MOOD = {
-  intro:1.0, open:1.02, world:1.03, trait:1.08, problem:1.14, react:1.1, attempt:1.1,
-  snag:1.16, low:1.2, help:0.97, plan:0.95, turn:1.05, solved:0.93, reflect:0.98, moral:0.98
+  intro:1.0, open:1.0, world:1.02, trait:1.12, problem:1.22, react:1.16, attempt:1.16,
+  snag:1.24, low:1.28, help:0.92, plan:0.88, turn:1.08, solved:0.85, reflect:0.95, moral:0.95
 };
 var camScaleEased = 1.0;
 function cameraTransform(elapsed, phase, dt){
@@ -1675,6 +1675,28 @@ function spriteIdFor(kind, tk, item){
 // crop (common here — arms/wings extending outward) doesn't get needlessly shrunk just
 // because height was picked as the "primary" dimension. This is what was making characters
 // render far smaller than intended: nearly every uploaded illustration is wider than tall.
+// A small "someone is talking" cue — a speech bubble with gently bouncing dots, positioned
+// near whoever's line is currently playing. Deliberately drawn as its own small decoration
+// rather than animating the character's body, so it can never cause the character itself
+// to look like it's vibrating.
+function drawSpeechIndicator(x, y, elapsed){
+  sctx.save();
+  sctx.translate(x, y);
+  sctx.globalAlpha = 0.92;
+  sctx.fillStyle = '#FFFFFF';
+  roundRect(sctx, -28, -18, 56, 32, 12);
+  sctx.fill();
+  sctx.fillStyle = '#2B2D5B';
+  sctx.textAlign='center'; sctx.textBaseline='middle';
+  for(var d=0; d<3; d++){
+    var bounce = Math.sin(elapsed*4 + d*0.9)*3;
+    sctx.beginPath();
+    sctx.arc(-14 + d*14, bounce, 3.4, 0, Math.PI*2);
+    sctx.fill();
+  }
+  sctx.restore();
+}
+
 function drawSpriteCentered(img, maxH, maxW){
   var ratio = img.naturalWidth / img.naturalHeight;
   var w = maxW, h = maxW/ratio;
@@ -1682,20 +1704,27 @@ function drawSpriteCentered(img, maxH, maxW){
   sctx.drawImage(img, -w/2, -h/2, w, h);
 }
 
-function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
+var lowDimEased = 0;
+function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart, dt){
   var v = THEME_VISUAL[theme];
   var bob = Math.sin(elapsed*2)*16;
   var sway = Math.sin(elapsed*1.3)*10;
   var heroX = W*0.27+sway, heroY = H*0.42+bob;
 
-  // 'low' (darkest moment): dim the whole scene first, hero sinks slightly
-  if(phase==='low'){
-    sctx.save(); sctx.globalAlpha=0.28; sctx.fillStyle='#2B2D5B'; sctx.fillRect(0,0,W,H); sctx.restore();
-    heroY += 18;
+  // 'low' (darkest moment): dim the whole scene, easing in/out smoothly instead of
+  // snapping instantly — an instant hard cut to a darker screen is exactly what reads as a
+  // jarring "jerk" rather than a mood shift.
+  var lowTarget = (phase==='low') ? 0.28 : 0;
+  var dimEase = Math.min(Math.max(dt||0.02, 0.001) * 4, 1);
+  lowDimEased += (lowTarget - lowDimEased) * dimEase;
+  if(lowDimEased > 0.005){
+    sctx.save(); sctx.globalAlpha=lowDimEased; sctx.fillStyle='#2B2D5B'; sctx.fillRect(0,0,W,H); sctx.restore();
   }
-  // 'snag': a little screen-shake to sell the obstacle
+  if(phase==='low'){ heroY += 18; }
+  // 'snag': a brief, gentle screen-shake to sell the obstacle — kept small so it reads as
+  // a stumble, not a jolt.
   var shakeX=0, shakeY=0;
-  if(phase==='snag'){ shakeX=(Math.random()-0.5)*10; shakeY=(Math.random()-0.5)*10; }
+  if(phase==='snag'){ shakeX=(Math.random()-0.5)*5; shakeY=(Math.random()-0.5)*5; }
 
   sctx.save(); sctx.translate(shakeX, shakeY);
 
@@ -1730,6 +1759,7 @@ function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
       sctx.fillText(pick.hero.emoji, 0, 0);
     }
     sctx.restore();
+    if(heroIsSpeaking){ drawSpeechIndicator(heroX+heroLeanX+80, heroY-110, elapsed); }
 
     if(phase==='open'){
       sctx.save(); sctx.globalAlpha=0.9;
@@ -1775,6 +1805,8 @@ function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
       sctx.fillText(pick.helper.emoji, 0, 0);
     }
     sctx.restore();
+    var helperIsSpeaking = speaking && (phase==='help' || phase==='plan');
+    if(helperIsSpeaking){ drawSpeechIndicator(helperX-80, H*0.42+helperBob-100, elapsed); }
     if(phase==='plan'){
       sctx.save(); sctx.globalAlpha=0.9;
       sctx.font='44px sans-serif';
@@ -1883,8 +1915,8 @@ function scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, theme)
   try{
     var musicGain = actx.createGain();
     musicGain.gain.setValueAtTime(0, startTime);
-    musicGain.gain.linearRampToValueAtTime(0.05, startTime+1.0);
-    musicGain.gain.setValueAtTime(0.05, Math.max(startTime+1.0, startTime+audioEnd-0.5));
+    musicGain.gain.linearRampToValueAtTime(0.075, startTime+1.0);
+    musicGain.gain.setValueAtTime(0.075, Math.max(startTime+1.0, startTime+audioEnd-0.5));
     musicGain.gain.linearRampToValueAtTime(0, startTime+audioEnd+2.0);
     musicGain.connect(dest);
 
@@ -1925,7 +1957,7 @@ function scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, theme)
       bp.frequency.exponentialRampToValueAtTime(400, atTime+dur);
       var g = actx.createGain();
       g.gain.setValueAtTime(0, atTime);
-      g.gain.linearRampToValueAtTime(0.09, atTime+0.05);
+      g.gain.linearRampToValueAtTime(0.14, atTime+0.05);
       g.gain.linearRampToValueAtTime(0, atTime+dur);
       src.connect(bp); bp.connect(g); g.connect(dest);
       src.start(atTime); src.stop(atTime+dur+0.05);
@@ -1940,7 +1972,7 @@ function scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, theme)
         var g = actx.createGain();
         var t0 = atTime + i*0.11;
         g.gain.setValueAtTime(0, t0);
-        g.gain.linearRampToValueAtTime(0.08, t0+0.02);
+        g.gain.linearRampToValueAtTime(0.13, t0+0.02);
         g.gain.exponentialRampToValueAtTime(0.001, t0+0.5);
         osc.connect(g); g.connect(dest);
         osc.start(t0); osc.stop(t0+0.55);
@@ -1954,7 +1986,7 @@ function scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, theme)
       osc.type = 'sawtooth'; osc.frequency.value = scale[0]/2;
       var g = actx.createGain();
       g.gain.setValueAtTime(0, atTime);
-      g.gain.linearRampToValueAtTime(0.06, atTime+dur*0.4);
+      g.gain.linearRampToValueAtTime(0.09, atTime+dur*0.4);
       g.gain.linearRampToValueAtTime(0, atTime+dur);
       var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=300;
       osc.connect(lp); lp.connect(g); g.connect(dest);
@@ -2021,6 +2053,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
 
   seedParticles(meta.tk);
   camScaleEased = 1.0;
+  lowDimEased = 0;
   // Manual frame-driven capture (captureStream(0) + track.requestFrame()) instead of an
   // automatic timed capture (captureStream(30)) — the automatic mode is known to produce
   // a frozen or near-static video on several mobile browsers, since the browser decides
@@ -2163,17 +2196,13 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
         sctx.restore();
         drawTitleCard(meta, narrator, elapsed/LEAD_IN);
       } else if(elapsed >= audioEnd){
-        drawCharacters(meta.tk, elapsed, 'solved', meta, true);
+        drawCharacters(meta.tk, elapsed, 'solved', meta, true, null, dt);
         if(confetti.length===0 && elapsed < audioEnd+0.1) burstConfetti();
         stepConfetti(dt); drawConfetti();
         sctx.restore();
         drawOutroCard(meta, narrator, elapsed-audioEnd);
       } else {
-        drawCharacters(meta.tk, elapsed, phase, meta, !!active, active ? active.start : null);
-        if(phase==='solved'){
-          if(confetti.length===0) burstConfetti();
-          stepConfetti(dt); drawConfetti();
-        }
+        drawCharacters(meta.tk, elapsed, phase, meta, !!active, active ? active.start : null, dt);
         sctx.restore();
         // Captions intentionally removed from the video — the illustration and narration
         // carry the story; overlaid text was competing with the artwork rather than
