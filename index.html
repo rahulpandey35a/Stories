@@ -135,7 +135,7 @@
     <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v23 · Jul 7, 2026</div>
+  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v24 · Jul 7, 2026</div>
   <div class="tabbar">
     <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
     <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
@@ -1569,7 +1569,7 @@ var camScaleEased = 1.0;
 function cameraTransform(elapsed, phase, dt){
   var target = (phase && CAMERA_MOOD[phase]) || 1.0;
   var ease = 1 - Math.pow(0.001, Math.max(dt||0.016, 0.001)); // frame-rate independent smoothing
-  camScaleEased += (target - camScaleEased) * Math.min(ease*3, 1);
+  camScaleEased += (target - camScaleEased) * Math.min(ease*0.9, 1);
   var wobble = 0.02*Math.sin(elapsed*0.6);
   var scale = camScaleEased + wobble;
   var panX = Math.sin(elapsed*0.17)*W*0.02;
@@ -1686,11 +1686,6 @@ function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
   var v = THEME_VISUAL[theme];
   var bob = Math.sin(elapsed*2)*16;
   var sway = Math.sin(elapsed*1.3)*10;
-  // Talking pulse — fakes mouth movement with a small rhythmic scale wobble while a
-  // character's own line is actively playing. There's no real phoneme data to lip-sync to,
-  // but a believable "talking bounce" reads far better than a character standing frozen
-  // while their voice plays.
-  var talkPulse = speaking ? (1 + 0.035*Math.sin(elapsed*14)) : 1;
   var heroX = W*0.27+sway, heroY = H*0.42+bob;
 
   // 'low' (darkest moment): dim the whole scene first, hero sinks slightly
@@ -1710,10 +1705,8 @@ function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
   if(phase!=='intro'){
     var heroScale = (phase==='trait') ? 1.15 : (phase==='attempt') ? 1.08 : (phase==='low') ? 0.9 :
                      (phase==='solved') ? 1.12 : 1;
-    heroScale *= heroIsSpeaking ? talkPulse : 1;
     var heroLeanX = (phase==='attempt' || phase==='snag') ? W*0.03 : (phase==='react') ? -W*0.02 : 0;
-    var heroRotate = Math.sin(elapsed*1.3)*0.06 + (phase==='solved' ? Math.sin(elapsed*5)*0.06 : 0)
-                      + (phase==='react' ? -0.08 : 0);
+    var heroRotate = Math.sin(elapsed*1.3)*0.06 + (phase==='react' ? -0.08 : 0);
 
     // ground shadow — squashes/stretches opposite the bob, sells the sense of weight and footsteps
     var shadowScale = 1 - (bob/16)*0.35;
@@ -1770,8 +1763,7 @@ function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
       var et = clamp((elapsed-beatStart)/0.5, 0, 1);
       entranceScale = 0.5 + 0.5*easeOutBack(et);
     }
-    var helperIsSpeaking = speaking && (phase==='help' || phase==='plan');
-    var helperScale = entranceScale * (phase==='solved' ? 1.1 : 1) * (helperIsSpeaking ? talkPulse : 1);
+    var helperScale = entranceScale * (phase==='solved' ? 1.1 : 1);
     sctx.save();
     sctx.translate(helperX, H*0.42+helperBob);
     sctx.scale(helperScale, helperScale);
