@@ -63,6 +63,8 @@
   .item .txt{flex:1; min-width:0}
   .item .hi{font-family:var(--dev); font-size:16px}
   .item .en{font-size:11px; color:var(--ink-soft)}
+  .context-hint{font-size:11px; color:var(--grape); margin-top:3px; line-height:1.4}
+  .context-hint .hi{font-family:var(--dev); font-size:12px; color:var(--grape)}
   .item .ctrl{display:flex; gap:6px; flex-shrink:0}
   .dot{width:9px; height:9px; border-radius:50%; background:var(--line); flex-shrink:0}
   .dot.done{background:var(--teal)}
@@ -133,7 +135,7 @@
     <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v22 · Jul 7, 2026</div>
+  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v23 · Jul 7, 2026</div>
   <div class="tabbar">
     <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
     <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
@@ -175,6 +177,9 @@
     </div>
     <div class="note" id="restoreStatus"></div>
     <div class="note" id="retrimStatus"></div>
+    <label class="note" style="display:flex; align-items:center; gap:6px; cursor:pointer">
+      <input type="checkbox" id="pitchMatchToggle"> 🧪 Experimental: nudge pitch to match across recordings (may add minor audio artifacts — try it and compare)
+    </label>
     <div class="note">Recordings auto-save to this device as you go — new ones are trimmed automatically; use the button above to trim recordings you made before this update. <b>On iPhone especially</b>: Safari can silently clear saved recordings after a period of inactivity, even for Home Screen apps — download a backup zip regularly, and use Restore above if recordings ever go missing. Tip: record just one theme's heroes/helpers + all the shared categories first (Places, Problem beats, Endings, Traits, Connectors) — that's enough for a full story in that one world, in this one voice.</div>
     <div id="storyOut"></div>
   </div>
@@ -815,6 +820,74 @@ function encodeWavMono(samples, sampleRate){
 
 // Trims silence from both ends (small threshold + a little padding so words don't feel clipped),
 // then re-encodes as WAV so the result is a plain, reliable format for both trimming and later playback/export.
+// --- Experimental: pitch estimation + pitch shifting, to reduce the pitch jumps between
+// independently-recorded words. This is genuinely experimental DSP — it can introduce
+// minor artifacts on some clips, which is why it's opt-in (see the checkbox in Part 1) and
+// always fails safe back to the untouched audio if anything about it goes wrong.
+
+// Autocorrelation-based fundamental frequency estimate, in the human voice range.
+function estimatePitch(samples, sr){
+  try{
+    var minF = 75, maxF = 400;
+    var minLag = Math.floor(sr/maxF), maxLag = Math.floor(sr/minF);
+    // Use a representative middle slice (onset/offset are more likely to be transient/noisy)
+    var start = Math.floor(samples.length*0.25), end = Math.floor(samples.length*0.75);
+    var seg = samples.subarray(start, end);
+    if(seg.length < maxLag*2) return null;
+    var bestLag = -1, bestVal = 0;
+    for(var lag=minLag; lag<=maxLag; lag++){
+      var sum=0;
+      for(var i=0;i<seg.length-lag;i+=2){ sum += seg[i]*seg[i+lag]; } // step 2 for speed
+      if(sum>bestVal){ bestVal=sum; bestLag=lag; }
+    }
+    if(bestLag<=0) return null;
+    var energy=0;
+    for(var j=0;j<seg.length;j+=2){ energy += seg[j]*seg[j]; }
+    if(energy < 0.0005) return null; // too quiet/unvoiced to trust
+    return sr/bestLag;
+  } catch(e){ return null; }
+}
+
+// A simple granular pitch shifter — resamples short overlapping grains and overlap-adds
+// them back with a Hann window, which changes pitch while keeping overall duration the
+// same. Modest quality (this is not a phase vocoder), but with no external library and no
+// network dependency, this is what's achievable while staying fully offline.
+function pitchShiftGrains(samples, sr, ratio){
+  try{
+    if(!isFinite(ratio) || ratio<=0 || Math.abs(ratio-1)<0.02) return samples; // not worth shifting
+    ratio = Math.max(0.75, Math.min(1.35, ratio)); // keep shifts modest to limit artifacts
+    var grainLen = Math.round(sr*0.04); // 40ms grains
+    var hop = Math.round(grainLen/2);   // 50% overlap
+    var out = new Float32Array(samples.length);
+    var win = new Float32Array(grainLen);
+    for(var w=0; w<grainLen; w++){ win[w] = 0.5 - 0.5*Math.cos(2*Math.PI*w/(grainLen-1)); } // Hann
+    for(var pos=0; pos+grainLen<samples.length; pos+=hop){
+      for(var k=0;k<grainLen;k++){
+        var srcPos = pos + k*ratio;
+        var i0 = Math.floor(srcPos), i1 = Math.min(i0+1, samples.length-1);
+        var frac = srcPos - i0;
+        if(i0 >= samples.length-1) break;
+        var sampleVal = samples[i0]*(1-frac) + samples[i1]*frac;
+        var outIdx = pos + k;
+        if(outIdx < out.length) out[outIdx] += sampleVal * win[k];
+      }
+    }
+    // normalize for the overlap-add gain buildup from the Hann windows
+    var peakIn=0, peakOut=0;
+    for(var a=0;a<samples.length;a++){ var av=Math.abs(samples[a]); if(av>peakIn) peakIn=av; }
+    for(var b=0;b<out.length;b++){ var bv=Math.abs(out[b]); if(bv>peakOut) peakOut=bv; }
+    if(peakOut > 0.0001 && peakIn > 0.0001){
+      var norm = peakIn/peakOut;
+      for(var c=0;c<out.length;c++){ out[c] = Math.max(-1, Math.min(1, out[c]*norm)); }
+    }
+    return out;
+  } catch(e){ return samples; } // fail safe — never lose the recording to a DSP bug
+}
+
+var PITCH_TARGET_HZ = 190; // a neutral middle target; deviation-based, not gender-specific
+var pitchMatchEnabled = false;
+try{ pitchMatchEnabled = localStorage.getItem('voiceStudioPitchMatch') === '1'; } catch(e){}
+
 async function trimSilenceToWav(blob){
   try{
     var ctx = trimCtx();
@@ -866,6 +939,17 @@ async function trimSilenceToWav(blob){
       var targetPeak = 0.82;
       var gain = Math.min(targetPeak/peak, 8); // cap gain so near-silent noise doesn't get blasted up
       for(var q=0;q<trimmed.length;q++){ trimmed[q] = Math.max(-1, Math.min(1, trimmed[q]*gain)); }
+    }
+
+    // Experimental: nudge this clip's pitch toward a common target, so words recorded on
+    // different days/moods don't jump around in pitch as jarringly when stitched together.
+    // Opt-in only (see the checkbox in Part 1) since this is genuine DSP with real limits.
+    if(pitchMatchEnabled){
+      var estPitch = estimatePitch(trimmed, sr);
+      if(estPitch){
+        var ratio = PITCH_TARGET_HZ / estPitch;
+        trimmed = pitchShiftGrains(trimmed, sr, ratio);
+      }
     }
 
     // A very short (5ms) fade right at the two cut edges — the trim above finds where real
@@ -986,13 +1070,68 @@ function renderCategory(anyIdInCat){
   attachItemHandlers(el);
 }
 
+var EXAMPLE_CACHE = {};
+// Finds a real story line that uses this exact phrase, so whoever's recording can see how
+// it's actually spoken in context — mid-sentence words read very differently than words
+// read as if they're a complete sentence on their own, and that mismatch is a real part of
+// why concatenated recordings can sound choppy.
+function getExampleContext(id){
+  if(EXAMPLE_CACHE[id] !== undefined) return EXAMPLE_CACHE[id];
+  var result = null;
+  try{
+    var tk = 'everyday';
+    var m = id.match(/^(hero|helper)_([a-z]+)_(\d+)$/);
+    if(m) tk = m[2];
+    var th = THEMES[tk];
+    var hero = th.heroes[0], helper = th.helpers[0], place = PLACES[0], ending = ENDINGS[0], trait = TRAIT[0], problem = PROBLEMS[0];
+    if(m && m[1]==='hero') hero = th.heroes[+m[3]];
+    if(m && m[1]==='helper') helper = th.helpers[+m[3]];
+    var pm;
+    if((pm = id.match(/^place_(\d+)$/))) place = PLACES[+pm[1]];
+    if((pm = id.match(/^trait_(\d+)$/))) trait = TRAIT[+pm[1]];
+    if((pm = id.match(/^ending_(\d+)$/))) ending = ENDINGS[+pm[1]];
+    var probMatch = id.match(/^prob_\w+_(.+)$/);
+    if(probMatch){
+      var foundP = PROBLEMS.find(function(p){ return p.en===probMatch[1]; });
+      if(foundP) problem = foundP;
+    }
+    var dailyMatch = id.match(/^daily_(\d+)_(m|f)$/);
+    if(dailyMatch){
+      var wantGender = dailyMatch[2];
+      var genderedHero = th.heroes.find(function(h){ return h.g===wantGender; });
+      if(!genderedHero){
+        for(var tkey in THEMES){
+          genderedHero = THEMES[tkey].heroes.find(function(h){ return h.g===wantGender; });
+          if(genderedHero){ tk=tkey; th=THEMES[tkey]; helper=th.helpers[0]; break; }
+        }
+      }
+      if(genderedHero) hero = genderedHero;
+    }
+    // DAILY/GOAL/LOWPOINT/REFLECTION are picked at random inside buildLines itself, so
+    // finding a specific one takes a few tries rather than one deterministic call.
+    var isRandomCategory = /^(daily_|goal_|low_|reflect_)/.test(id);
+    var attempts = isRandomCategory ? 30 : 1;
+    for(var i=0;i<attempts;i++){
+      var exampleLines = buildLines(tk, hero, place, problem, helper, ending, trait, 'long');
+      var matchLine = exampleLines.find(function(l){ return l.ids.indexOf(id) >= 0; });
+      if(matchLine){ result = {hi: matchLine.hi, en: matchLine.en}; break; }
+      if(!isRandomCategory) break;
+    }
+  } catch(e){ result = null; }
+  EXAMPLE_CACHE[id] = result;
+  return result;
+}
+
 function itemRow(it){
   var has = !!clips[clipKey(it.id)];
   var recording = recordingKey===clipKey(it.id);
   var dotClass = recording ? 'recording' : (has ? 'done' : '');
+  var example = getExampleContext(it.id);
   return '<div class="item" data-id="'+it.id+'">'+
     '<div class="dot '+dotClass+'"></div>'+
-    '<div class="txt"><div class="hi">'+it.hi+'</div><div class="en">'+it.en+'</div></div>'+
+    '<div class="txt"><div class="hi">'+it.hi+'</div><div class="en">'+it.en+'</div>'+
+      (example ? '<div class="context-hint">💬 In a story: <span class="hi">'+example.hi+'</span></div>' : '')+
+    '</div>'+
     '<div class="ctrl">'+
       (recording
         ? '<button class="btn-danger mini" data-act="stop">■ Stop</button>'
@@ -1422,10 +1561,19 @@ function drawScenery(theme, place, elapsed, placeSprite){
 // (background + scenery + particles + characters, but NOT the caption panel) —
 // guarantees the frame is visibly alive every single moment of the video,
 // independent of whatever the characters themselves are doing.
-function cameraTransform(elapsed){
-  var scale = 1 + 0.035*Math.sin(elapsed*0.18);
-  var panX = Math.sin(elapsed*0.11)*W*0.015;
-  var panY = Math.cos(elapsed*0.09)*H*0.01;
+var CAMERA_MOOD = {
+  intro:1.0, open:1.02, world:1.03, trait:1.08, problem:1.14, react:1.1, attempt:1.1,
+  snag:1.16, low:1.2, help:0.97, plan:0.95, turn:1.05, solved:0.93, reflect:0.98, moral:0.98
+};
+var camScaleEased = 1.0;
+function cameraTransform(elapsed, phase, dt){
+  var target = (phase && CAMERA_MOOD[phase]) || 1.0;
+  var ease = 1 - Math.pow(0.001, Math.max(dt||0.016, 0.001)); // frame-rate independent smoothing
+  camScaleEased += (target - camScaleEased) * Math.min(ease*3, 1);
+  var wobble = 0.02*Math.sin(elapsed*0.6);
+  var scale = camScaleEased + wobble;
+  var panX = Math.sin(elapsed*0.17)*W*0.02;
+  var panY = Math.cos(elapsed*0.13)*H*0.015;
   sctx.translate(W/2+panX, H/2+panY);
   sctx.scale(scale, scale);
   sctx.translate(-W/2, -H/2);
@@ -1534,10 +1682,15 @@ function drawSpriteCentered(img, maxH, maxW){
   sctx.drawImage(img, -w/2, -h/2, w, h);
 }
 
-function drawCharacters(theme, elapsed, phase, pick){
+function drawCharacters(theme, elapsed, phase, pick, speaking, beatStart){
   var v = THEME_VISUAL[theme];
   var bob = Math.sin(elapsed*2)*16;
   var sway = Math.sin(elapsed*1.3)*10;
+  // Talking pulse — fakes mouth movement with a small rhythmic scale wobble while a
+  // character's own line is actively playing. There's no real phoneme data to lip-sync to,
+  // but a believable "talking bounce" reads far better than a character standing frozen
+  // while their voice plays.
+  var talkPulse = speaking ? (1 + 0.035*Math.sin(elapsed*14)) : 1;
   var heroX = W*0.27+sway, heroY = H*0.42+bob;
 
   // 'low' (darkest moment): dim the whole scene first, hero sinks slightly
@@ -1551,9 +1704,16 @@ function drawCharacters(theme, elapsed, phase, pick){
 
   sctx.save(); sctx.translate(shakeX, shakeY);
 
+  var helperPhases = {help:1, plan:1, turn:1, solved:1, reflect:1, moral:1};
+  var heroIsSpeaking = speaking && !(phase==='help' || phase==='plan'); // the helper "talks" during those instead
+
   if(phase!=='intro'){
-    var heroScale = (phase==='trait') ? 1.15 : (phase==='attempt') ? 1.08 : (phase==='low') ? 0.9 : 1;
-    var heroLeanX = (phase==='attempt' || phase==='snag') ? W*0.03 : 0;
+    var heroScale = (phase==='trait') ? 1.15 : (phase==='attempt') ? 1.08 : (phase==='low') ? 0.9 :
+                     (phase==='solved') ? 1.12 : 1;
+    heroScale *= heroIsSpeaking ? talkPulse : 1;
+    var heroLeanX = (phase==='attempt' || phase==='snag') ? W*0.03 : (phase==='react') ? -W*0.02 : 0;
+    var heroRotate = Math.sin(elapsed*1.3)*0.06 + (phase==='solved' ? Math.sin(elapsed*5)*0.06 : 0)
+                      + (phase==='react' ? -0.08 : 0);
 
     // ground shadow — squashes/stretches opposite the bob, sells the sense of weight and footsteps
     var shadowScale = 1 - (bob/16)*0.35;
@@ -1567,7 +1727,7 @@ function drawCharacters(theme, elapsed, phase, pick){
 
     sctx.save();
     sctx.translate(heroX+heroLeanX, heroY);
-    sctx.rotate(Math.sin(elapsed*1.3)*0.06);
+    sctx.rotate(heroRotate);
     sctx.scale(heroScale, heroScale);
     if(pick.heroSprite){
       drawSpriteCentered(pick.heroSprite, 270, 225);
@@ -1600,11 +1760,21 @@ function drawCharacters(theme, elapsed, phase, pick){
     sctx.restore();
   }
 
-  if(phase==='help' || phase==='plan' || phase==='turn' || phase==='solved' || phase==='reflect' || phase==='moral'){
+  if(helperPhases[phase]){
     var helperBob = Math.sin(elapsed*2.4+1.1)*14;
     var helperX = (phase==='plan') ? W*0.62 : W*0.73;
+    // Entrance spring — the helper bounces in with a little overshoot the moment their
+    // beat begins, instead of just popping into existence fully formed.
+    var entranceScale = 1;
+    if(phase==='help' && beatStart!=null){
+      var et = clamp((elapsed-beatStart)/0.5, 0, 1);
+      entranceScale = 0.5 + 0.5*easeOutBack(et);
+    }
+    var helperIsSpeaking = speaking && (phase==='help' || phase==='plan');
+    var helperScale = entranceScale * (phase==='solved' ? 1.1 : 1) * (helperIsSpeaking ? talkPulse : 1);
     sctx.save();
     sctx.translate(helperX, H*0.42+helperBob);
+    sctx.scale(helperScale, helperScale);
     if(pick.helperSprite){
       drawSpriteCentered(pick.helperSprite, 250, 200);
     } else {
@@ -1703,6 +1873,110 @@ function speakLineTTS(hi){
   } catch(e){}
 }
 
+var THEME_SCALE = {
+  everyday: [261.63, 329.63, 392.00, 440.00],
+  panch:    [220.00, 261.63, 293.66, 349.23],
+  legends:  [293.66, 369.99, 440.00, 554.37],
+  folk:     [246.94, 293.66, 369.99, 415.30],
+  epics:    [220.00, 277.18, 329.63, 415.30]
+};
+
+// A fully synthesized, theme-tinted soundtrack — no external audio files, so it stays
+// within the same offline/zero-dependency rule as everything else. Every sound is wrapped
+// in its own try/catch so a single failed node never breaks the rest of the video.
+function scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, theme){
+  var scale = THEME_SCALE[theme] || THEME_SCALE.everyday;
+  var stopAt = startTime + audioEnd + 2.2;
+
+  try{
+    var musicGain = actx.createGain();
+    musicGain.gain.setValueAtTime(0, startTime);
+    musicGain.gain.linearRampToValueAtTime(0.05, startTime+1.0);
+    musicGain.gain.setValueAtTime(0.05, Math.max(startTime+1.0, startTime+audioEnd-0.5));
+    musicGain.gain.linearRampToValueAtTime(0, startTime+audioEnd+2.0);
+    musicGain.connect(dest);
+
+    var filt = actx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 1200;
+    filt.connect(musicGain);
+
+    [0,1].forEach(function(i){
+      var osc = actx.createOscillator();
+      osc.type = i===0 ? 'sine' : 'triangle';
+      osc.frequency.value = scale[0] * (i===0 ? 1 : 2);
+      osc.detune.value = i===0 ? -4 : 4;
+      var g = actx.createGain();
+      g.gain.value = i===0 ? 0.7 : 0.3;
+      osc.connect(g); g.connect(filt);
+      osc.start(startTime); osc.stop(stopAt);
+    });
+
+    var lfo = actx.createOscillator();
+    lfo.frequency.value = 0.08;
+    var lfoGain = actx.createGain();
+    lfoGain.gain.value = 300;
+    lfo.connect(lfoGain); lfoGain.connect(filt.frequency);
+    lfo.start(startTime); lfo.stop(stopAt);
+  } catch(e){ console.log('Ambient pad failed:', e); }
+
+  function whoosh(atTime){
+    try{
+      var dur = 0.5;
+      var buf = actx.createBuffer(1, Math.max(1, Math.round(actx.sampleRate*dur)), actx.sampleRate);
+      var data = buf.getChannelData(0);
+      for(var i=0;i<data.length;i++){ data[i] = Math.random()*2-1; }
+      var src = actx.createBufferSource(); src.buffer = buf;
+      var bp = actx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.Q.value = 0.8;
+      bp.frequency.setValueAtTime(300, atTime);
+      bp.frequency.exponentialRampToValueAtTime(2200, atTime+dur*0.6);
+      bp.frequency.exponentialRampToValueAtTime(400, atTime+dur);
+      var g = actx.createGain();
+      g.gain.setValueAtTime(0, atTime);
+      g.gain.linearRampToValueAtTime(0.09, atTime+0.05);
+      g.gain.linearRampToValueAtTime(0, atTime+dur);
+      src.connect(bp); bp.connect(g); g.connect(dest);
+      src.start(atTime); src.stop(atTime+dur+0.05);
+    } catch(e){}
+  }
+
+  function chime(atTime, notes){
+    notes.forEach(function(freq, i){
+      try{
+        var osc = actx.createOscillator();
+        osc.type = 'triangle'; osc.frequency.value = freq;
+        var g = actx.createGain();
+        var t0 = atTime + i*0.11;
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(0.08, t0+0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t0+0.5);
+        osc.connect(g); g.connect(dest);
+        osc.start(t0); osc.stop(t0+0.55);
+      } catch(e){}
+    });
+  }
+
+  function droneSwell(atTime, dur){
+    try{
+      var osc = actx.createOscillator();
+      osc.type = 'sawtooth'; osc.frequency.value = scale[0]/2;
+      var g = actx.createGain();
+      g.gain.setValueAtTime(0, atTime);
+      g.gain.linearRampToValueAtTime(0.06, atTime+dur*0.4);
+      g.gain.linearRampToValueAtTime(0, atTime+dur);
+      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=300;
+      osc.connect(lp); lp.connect(g); g.connect(dest);
+      osc.start(atTime); osc.stop(atTime+dur+0.1);
+    } catch(e){}
+  }
+
+  lineTimings.forEach(function(lt){
+    if(lt.role==='problem' || lt.role==='help') whoosh(startTime+lt.start);
+    if(lt.role==='solved') chime(startTime+lt.start, scale);
+    if(lt.role==='low') droneSwell(startTime+lt.start, Math.max(1.5, lt.end-lt.start));
+  });
+}
+
 async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl, genBtn){
   var isDefault = (narrator === 'default');
   var missing = isDefault ? [] : missingIds(lines, narrator);
@@ -1754,6 +2028,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
   var totalDuration = audioEnd + OUTRO_LEN;
 
   seedParticles(meta.tk);
+  camScaleEased = 1.0;
   // Manual frame-driven capture (captureStream(0) + track.requestFrame()) instead of an
   // automatic timed capture (captureStream(30)) — the automatic mode is known to produce
   // a frozen or near-static video on several mobile browsers, since the browser decides
@@ -1841,6 +2116,8 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     });
   }
 
+  try{ scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, meta.tk); } catch(sfxErr){ console.log('Soundtrack scheduling failed (video continues without it):', sfxErr); }
+
   var lastTs = null;
   function frame(ts){
     if(lastTs===null) lastTs = ts;
@@ -1855,24 +2132,16 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     try{
       sctx.setTransform(stage.width/W, 0, 0, stage.height/H, 0, 0); // logical -> physical resolution
       stepParticles(dt);
-      sctx.save();
-      cameraTransform(elapsed);
-      drawBackground(meta.tk, elapsed, meta.placeSprite);
-      drawScenery(meta.tk, meta.place, elapsed, meta.placeSprite);
-      drawParticles();
 
+      // Determine phase FIRST — the camera now reacts to which beat we're in, so it needs
+      // to know that before anything gets drawn, not partway through.
+      var phase, active = null;
       if(elapsed < LEAD_IN*0.9){
-        sctx.restore();
-        drawTitleCard(meta, narrator, elapsed/LEAD_IN);
+        phase = 'intro';
       } else if(elapsed >= audioEnd){
-        drawCharacters(meta.tk, elapsed, 'solved', meta);
-        if(confetti.length===0 && elapsed < audioEnd+0.1) burstConfetti();
-        stepConfetti(dt); drawConfetti();
-        sctx.restore();
-        drawOutroCard(meta, narrator, elapsed-audioEnd);
+        phase = 'solved';
       } else {
-        var active = lineTimings.find(function(l){ return elapsed>=l.start && elapsed<l.end; });
-        var phase;
+        active = lineTimings.find(function(l){ return elapsed>=l.start && elapsed<l.end; });
         if(active){
           phase = active.role;
         } else if(elapsed < lineTimings[0].start){
@@ -1890,7 +2159,25 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
           }
           phase = justFinished ? justFinished.role : 'intro';
         }
-        drawCharacters(meta.tk, elapsed, phase, meta);
+      }
+
+      sctx.save();
+      cameraTransform(elapsed, phase, dt);
+      drawBackground(meta.tk, elapsed, meta.placeSprite);
+      drawScenery(meta.tk, meta.place, elapsed, meta.placeSprite);
+      drawParticles();
+
+      if(elapsed < LEAD_IN*0.9){
+        sctx.restore();
+        drawTitleCard(meta, narrator, elapsed/LEAD_IN);
+      } else if(elapsed >= audioEnd){
+        drawCharacters(meta.tk, elapsed, 'solved', meta, true);
+        if(confetti.length===0 && elapsed < audioEnd+0.1) burstConfetti();
+        stepConfetti(dt); drawConfetti();
+        sctx.restore();
+        drawOutroCard(meta, narrator, elapsed-audioEnd);
+      } else {
+        drawCharacters(meta.tk, elapsed, phase, meta, !!active, active ? active.start : null);
         if(phase==='solved'){
           if(confetti.length===0) burstConfetti();
           stepConfetti(dt); drawConfetti();
@@ -2132,6 +2419,14 @@ document.getElementById('n_filmBtn').onclick = function(){
 populateNarratorSelect();
 buildCategoriesUI();
 document.getElementById('micTestBtn').onclick = runMicSelfTest;
+(function initPitchToggle(){
+  var cb = document.getElementById('pitchMatchToggle');
+  cb.checked = pitchMatchEnabled;
+  cb.onchange = function(){
+    pitchMatchEnabled = cb.checked;
+    try{ localStorage.setItem('voiceStudioPitchMatch', pitchMatchEnabled ? '1' : '0'); } catch(e){}
+  };
+})();
 (function(){
   var problem = micSupportProblem();
   if(problem){
