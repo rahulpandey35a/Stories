@@ -135,7 +135,7 @@
     <h1>📖 Story Maker</h1>
     <button class="btn-secondary" id="themeToggleBtn" style="flex-shrink:0; white-space:nowrap">🌙 Dark</button>
   </div>
-  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v26 · Jul 7, 2026</div>
+  <div class="note" id="appVersionTag" style="margin:-6px 0 8px">App version: v28 · Jul 7, 2026</div>
   <div class="tabbar">
     <button class="tabbtn" id="tabBtnStory" data-tab="story">📖 Story Time</button>
     <button class="tabbtn" id="tabBtnSetup" data-tab="setup">🎙️ Grown-Up Setup</button>
@@ -1871,110 +1871,6 @@ function speakLineTTS(hi){
   } catch(e){}
 }
 
-var THEME_SCALE = {
-  everyday: [261.63, 329.63, 392.00, 440.00],
-  panch:    [220.00, 261.63, 293.66, 349.23],
-  legends:  [293.66, 369.99, 440.00, 554.37],
-  folk:     [246.94, 293.66, 369.99, 415.30],
-  epics:    [220.00, 277.18, 329.63, 415.30]
-};
-
-// A fully synthesized, theme-tinted soundtrack — no external audio files, so it stays
-// within the same offline/zero-dependency rule as everything else. Every sound is wrapped
-// in its own try/catch so a single failed node never breaks the rest of the video.
-function scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, theme){
-  var scale = THEME_SCALE[theme] || THEME_SCALE.everyday;
-  var stopAt = startTime + audioEnd + 2.2;
-
-  try{
-    var musicGain = actx.createGain();
-    musicGain.gain.setValueAtTime(0, startTime);
-    musicGain.gain.linearRampToValueAtTime(0.075, startTime+1.0);
-    musicGain.gain.setValueAtTime(0.075, Math.max(startTime+1.0, startTime+audioEnd-0.5));
-    musicGain.gain.linearRampToValueAtTime(0, startTime+audioEnd+2.0);
-    musicGain.connect(dest);
-
-    var filt = actx.createBiquadFilter();
-    filt.type = 'lowpass'; filt.frequency.value = 1200;
-    filt.connect(musicGain);
-
-    [0,1].forEach(function(i){
-      var osc = actx.createOscillator();
-      osc.type = i===0 ? 'sine' : 'triangle';
-      osc.frequency.value = scale[0] * (i===0 ? 1 : 2);
-      osc.detune.value = i===0 ? -4 : 4;
-      var g = actx.createGain();
-      g.gain.value = i===0 ? 0.7 : 0.3;
-      osc.connect(g); g.connect(filt);
-      osc.start(startTime); osc.stop(stopAt);
-    });
-
-    var lfo = actx.createOscillator();
-    lfo.frequency.value = 0.08;
-    var lfoGain = actx.createGain();
-    lfoGain.gain.value = 300;
-    lfo.connect(lfoGain); lfoGain.connect(filt.frequency);
-    lfo.start(startTime); lfo.stop(stopAt);
-  } catch(e){ console.log('Ambient pad failed:', e); }
-
-  function whoosh(atTime){
-    try{
-      var dur = 0.5;
-      var buf = actx.createBuffer(1, Math.max(1, Math.round(actx.sampleRate*dur)), actx.sampleRate);
-      var data = buf.getChannelData(0);
-      for(var i=0;i<data.length;i++){ data[i] = Math.random()*2-1; }
-      var src = actx.createBufferSource(); src.buffer = buf;
-      var bp = actx.createBiquadFilter();
-      bp.type = 'bandpass'; bp.Q.value = 0.8;
-      bp.frequency.setValueAtTime(300, atTime);
-      bp.frequency.exponentialRampToValueAtTime(2200, atTime+dur*0.6);
-      bp.frequency.exponentialRampToValueAtTime(400, atTime+dur);
-      var g = actx.createGain();
-      g.gain.setValueAtTime(0, atTime);
-      g.gain.linearRampToValueAtTime(0.14, atTime+0.05);
-      g.gain.linearRampToValueAtTime(0, atTime+dur);
-      src.connect(bp); bp.connect(g); g.connect(dest);
-      src.start(atTime); src.stop(atTime+dur+0.05);
-    } catch(e){}
-  }
-
-  function chime(atTime, notes){
-    notes.forEach(function(freq, i){
-      try{
-        var osc = actx.createOscillator();
-        osc.type = 'triangle'; osc.frequency.value = freq;
-        var g = actx.createGain();
-        var t0 = atTime + i*0.11;
-        g.gain.setValueAtTime(0, t0);
-        g.gain.linearRampToValueAtTime(0.13, t0+0.02);
-        g.gain.exponentialRampToValueAtTime(0.001, t0+0.5);
-        osc.connect(g); g.connect(dest);
-        osc.start(t0); osc.stop(t0+0.55);
-      } catch(e){}
-    });
-  }
-
-  function droneSwell(atTime, dur){
-    try{
-      var osc = actx.createOscillator();
-      osc.type = 'sawtooth'; osc.frequency.value = scale[0]/2;
-      var g = actx.createGain();
-      g.gain.setValueAtTime(0, atTime);
-      g.gain.linearRampToValueAtTime(0.09, atTime+dur*0.4);
-      g.gain.linearRampToValueAtTime(0, atTime+dur);
-      var lp = actx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=300;
-      osc.connect(lp); lp.connect(g); g.connect(dest);
-      osc.start(atTime); osc.stop(atTime+dur+0.1);
-    } catch(e){}
-  }
-
-  lineTimings.forEach(function(lt){
-    if(lt.role==='problem' || lt.role==='help') whoosh(startTime+lt.start);
-    if(lt.role==='solved') chime(startTime+lt.start, scale);
-    if(lt.role==='low') droneSwell(startTime+lt.start, Math.max(1.5, lt.end-lt.start));
-  });
-}
-
 async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl, genBtn){
   var isDefault = (narrator === 'default');
   var missing = isDefault ? [] : missingIds(lines, narrator);
@@ -2115,7 +2011,7 @@ async function generateVideo(lines, meta, narrator, statusEl, resultEl, canvasEl
     });
   }
 
-  try{ scheduleSoundtrack(actx, dest, startTime, lineTimings, audioEnd, meta.tk); } catch(sfxErr){ console.log('Soundtrack scheduling failed (video continues without it):', sfxErr); }
+  // Background music/sound effects were tried and removed — narration only, by request.
 
   var lastTs = null;
   function frame(ts){
